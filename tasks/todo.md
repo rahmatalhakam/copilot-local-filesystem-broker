@@ -1,0 +1,30 @@
+# Copilot Local Filesystem Broker MVP
+
+- [x] Task 1: Project and contract foundation
+  - [x] Strict request/response models
+  - [x] Validated YAML configuration
+  - [x] Isolated test fixture
+- [x] Task 2: Secure path and policy boundary
+  - [x] Reject absolute/UNC/drive/traversal/ADS paths
+  - [x] Enforce containment, hidden, reparse, root, and extension policy
+- [x] Checkpoint: foundation tests and compile pass
+- [x] Task 3: File CRUD and metadata
+  - [x] Create/read/update/append/replace
+  - [x] Hash and timestamp concurrency checks
+- [x] Task 4: Directory, transfer, recycle, and search
+  - [x] Directory/list/move/copy/recycle
+  - [x] Bounded name and content search
+- [x] Task 5: Dispatcher and HTTP API
+  - [x] Operation-specific validation and permissions
+  - [x] Stable success/error responses
+- [x] Checkpoint: structured endpoint flow passes
+- [x] Task 6: Restricted PowerShell
+  - [x] Per-command parameter profiles
+  - [x] Timeout, minimal environment, and output limits
+- [x] Task 7: Audit integration
+  - [x] One sanitized record per accepted request
+  - [x] Audit failure does not mask operation response
+- [x] Task 8: Connector and operator deliverables
+  - [x] Swagger 2.0 contract
+  - [x] Config, scripts, dependencies, README, ignore rules
+- [x] Final: full tests, compile/static checks, audit, adversarial review

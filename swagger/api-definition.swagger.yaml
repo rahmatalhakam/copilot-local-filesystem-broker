@@ -1,0 +1,447 @@
+swagger: '2.0'
+
+info:
+  title: Copilot Local Filesystem Broker
+  version: '1.0.0'
+  description: >
+    Executes approved filesystem operations and restricted read-only
+    PowerShell commands inside configured local Windows workspaces.
+
+host: localhost:8000
+basePath: /api/v1
+schemes: [http]
+consumes: [application/json]
+produces: [application/json]
+
+paths:
+  /filesystem/execute:
+    post:
+      operationId: ExecuteWorkspaceFileOperation
+      summary: Execute a workspace filesystem operation
+      description: >
+        Executes one structured filesystem operation or one explicitly
+        allowlisted read-only PowerShell command. Paths must be relative to a
+        configured workspace. Arbitrary script text is never accepted.
+      x-ms-visibility: important
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/FileOperationRequest'
+      responses:
+        '200':
+          description: Operation completed
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '400':
+          description: Invalid operation fields
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '403':
+          description: Rejected by workspace policy
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '404':
+          description: Item not found
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '408':
+          description: Operation timed out
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '409':
+          description: File conflict
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '413':
+          description: Request body exceeds the service byte limit
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '422':
+          description: Request schema validation failed
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+        '500':
+          description: Internal server error
+          schema: {$ref: '#/definitions/FileOperationResponse'}
+
+definitions:
+  FileOperationRequest:
+    type: object
+    required: [operation, workspace]
+    additionalProperties: false
+    properties:
+      operation:
+        type: string
+        x-ms-summary: Operation
+        enum:
+          - CREATE_FILE
+          - CREATE_DIRECTORY
+          - READ_FILE
+          - LIST_DIRECTORY
+          - UPDATE_FILE
+          - APPEND_FILE
+          - REPLACE_TEXT
+          - DELETE_FILE
+          - DELETE_DIRECTORY
+          - MOVE
+          - COPY
+          - SEARCH_FILES
+          - SEARCH_CONTENT
+          - GET_METADATA
+          - EXISTS
+          - EXECUTE_COMMAND
+      workspace:
+        type: string
+        x-ms-summary: Workspace
+        minLength: 1
+        maxLength: 100
+      path:
+        type: string
+        x-nullable: true
+        x-ms-summary: Relative path
+        maxLength: 1000
+      destinationPath:
+        type: string
+        x-nullable: true
+        x-ms-summary: Destination path
+        maxLength: 1000
+      content:
+        type: string
+        x-nullable: true
+        x-ms-summary: Content
+        maxLength: 1000000
+      encoding:
+        type: string
+        x-ms-summary: Encoding
+        x-ms-visibility: advanced
+        enum: [utf-8, utf-8-bom, ascii, unicode, base64]
+        default: utf-8
+      overwrite:
+        type: boolean
+        x-ms-summary: Overwrite
+        default: false
+      appendNewLine:
+        type: boolean
+        x-ms-summary: Append newline
+        x-ms-visibility: advanced
+        default: true
+      createParentDirectories:
+        type: boolean
+        x-ms-summary: Create parent directories
+        default: false
+      recursive:
+        type: boolean
+        x-ms-summary: Recursive
+        default: false
+      force:
+        type: boolean
+        x-ms-summary: Force
+        x-ms-visibility: advanced
+        default: false
+      searchPattern:
+        type: string
+        x-nullable: true
+        x-ms-summary: Search pattern
+        maxLength: 200
+      searchText:
+        type: string
+        x-nullable: true
+        x-ms-summary: Search text
+        maxLength: 200
+      replacementText:
+        type: string
+        x-nullable: true
+        x-ms-summary: Replacement text
+        maxLength: 1000000
+      expectedOccurrences:
+        type: integer
+        format: int32
+        x-ms-summary: Expected occurrences
+        x-ms-visibility: advanced
+        minimum: 0
+        maximum: 10000
+        default: 1
+      replaceAll:
+        type: boolean
+        x-ms-summary: Replace all
+        x-ms-visibility: advanced
+        default: false
+      caseSensitive:
+        type: boolean
+        x-ms-summary: Case sensitive
+        x-ms-visibility: advanced
+        default: false
+      useRegex:
+        type: boolean
+        x-ms-summary: Use regular expression
+        x-ms-visibility: advanced
+        default: false
+      wholeWord:
+        type: boolean
+        x-ms-summary: Whole word
+        x-ms-visibility: advanced
+        default: false
+      includeFiles:
+        type: boolean
+        x-ms-summary: Include files
+        x-ms-visibility: advanced
+        default: true
+      includeDirectories:
+        type: boolean
+        x-ms-summary: Include directories
+        x-ms-visibility: advanced
+        default: false
+      includeHidden:
+        type: boolean
+        x-ms-summary: Include hidden items
+        x-ms-visibility: advanced
+        default: false
+      fileExtension:
+        type: string
+        x-nullable: true
+        x-ms-summary: File extension
+        x-ms-visibility: advanced
+        maxLength: 50
+      namePattern:
+        type: string
+        x-nullable: true
+        x-ms-summary: Name pattern
+        x-ms-visibility: advanced
+        maxLength: 200
+      maxDepth:
+        type: integer
+        format: int32
+        x-ms-summary: Maximum depth
+        x-ms-visibility: advanced
+        minimum: 0
+        maximum: 20
+        default: 10
+      maxResults:
+        type: integer
+        format: int32
+        x-ms-summary: Maximum results
+        x-ms-visibility: advanced
+        minimum: 1
+        maximum: 1000
+        default: 100
+      skip:
+        type: integer
+        format: int32
+        x-ms-summary: Results to skip
+        x-ms-visibility: advanced
+        minimum: 0
+        default: 0
+      maxContentCharacters:
+        type: integer
+        format: int32
+        x-ms-summary: Maximum returned characters
+        x-ms-visibility: advanced
+        minimum: 0
+        maximum: 400000
+        default: 100000
+      returnContent:
+        type: boolean
+        x-ms-summary: Return content
+        x-ms-visibility: advanced
+        default: true
+      returnMetadata:
+        type: boolean
+        x-ms-summary: Return metadata
+        x-ms-visibility: advanced
+        default: true
+      returnHash:
+        type: boolean
+        x-ms-summary: Return SHA-256 hash
+        x-ms-visibility: advanced
+        default: false
+      expectedHash:
+        type: string
+        x-nullable: true
+        x-ms-summary: Expected SHA-256 hash
+        x-ms-visibility: advanced
+        minLength: 71
+        maxLength: 71
+        pattern: '^sha256:[0-9A-Fa-f]{64}$'
+      expectedLastModifiedUtc:
+        type: string
+        format: date-time
+        x-nullable: true
+        x-ms-summary: Expected modification time
+        x-ms-visibility: advanced
+      shellCommand:
+        type: string
+        x-nullable: true
+        x-ms-summary: PowerShell command
+        maxLength: 100
+      shellArguments:
+        type: array
+        x-ms-summary: PowerShell arguments
+        maxItems: 50
+        default: []
+        items:
+          type: string
+          maxLength: 1000
+      reason:
+        type: string
+        x-nullable: true
+        x-ms-summary: Reason
+        maxLength: 1000
+      timeoutSeconds:
+        type: integer
+        format: int32
+        x-ms-summary: Timeout in seconds
+        x-ms-visibility: advanced
+        minimum: 1
+        maximum: 60
+        default: 20
+      correlationId:
+        type: string
+        x-nullable: true
+        x-ms-summary: Correlation ID
+        x-ms-visibility: advanced
+        maxLength: 200
+
+  FileOperationResponse:
+    type: object
+    additionalProperties: false
+    required:
+      - success
+      - status
+      - operation
+      - operationId
+      - correlationId
+      - workspace
+      - path
+      - destinationPath
+      - message
+      - errorCode
+      - errorMessage
+      - exists
+      - itemType
+      - content
+      - encoding
+      - contentTruncated
+      - name
+      - extension
+      - sizeBytes
+      - createdUtc
+      - modifiedUtc
+      - hash
+      - affectedCount
+      - totalResults
+      - returnedResults
+      - hasMore
+      - nextSkip
+      - items
+      - matches
+      - exitCode
+      - stdout
+      - stderr
+      - outputTruncated
+      - recycleId
+      - recyclePath
+      - durationMs
+      - policyAllowed
+      - policyRule
+    properties:
+      success: {type: boolean}
+      status:
+        type: string
+        enum: [COMPLETED, PARTIAL, REJECTED, FAILED, TIMEOUT, CONFLICT, NOT_FOUND]
+      operation: {type: string}
+      operationId: {type: string}
+      correlationId: {type: string, x-nullable: true}
+      workspace: {type: string, x-nullable: true}
+      path: {type: string, x-nullable: true}
+      destinationPath: {type: string, x-nullable: true}
+      message: {type: string}
+      errorCode: {type: string, x-nullable: true}
+      errorMessage: {type: string, x-nullable: true}
+      exists: {type: boolean, x-nullable: true}
+      itemType:
+        type: string
+        x-nullable: true
+        enum: [FILE, DIRECTORY, REPARSE_POINT, OTHER]
+      content: {type: string, x-nullable: true}
+      encoding: {type: string, x-nullable: true}
+      contentTruncated: {type: boolean, default: false}
+      name: {type: string, x-nullable: true}
+      extension: {type: string, x-nullable: true}
+      sizeBytes: {type: integer, format: int64, x-nullable: true}
+      createdUtc: {type: string, format: date-time, x-nullable: true}
+      modifiedUtc: {type: string, format: date-time, x-nullable: true}
+      hash:
+        type: string
+        x-nullable: true
+        minLength: 71
+        maxLength: 71
+        pattern: '^sha256:[0-9A-Fa-f]{64}$'
+      affectedCount: {type: integer, format: int32, default: 0}
+      totalResults: {type: integer, format: int32, default: 0}
+      returnedResults: {type: integer, format: int32, default: 0}
+      hasMore: {type: boolean, default: false}
+      nextSkip: {type: integer, format: int32, x-nullable: true}
+      items:
+        type: array
+        default: []
+        items: {$ref: '#/definitions/FileSystemItem'}
+      matches:
+        type: array
+        default: []
+        items: {$ref: '#/definitions/ContentMatch'}
+      exitCode: {type: integer, format: int32, x-nullable: true}
+      stdout: {type: string, default: ''}
+      stderr: {type: string, default: ''}
+      outputTruncated: {type: boolean, default: false}
+      recycleId: {type: string, x-nullable: true}
+      recyclePath: {type: string, x-nullable: true}
+      durationMs: {type: integer, format: int64, default: 0}
+      policyAllowed: {type: boolean, default: true}
+      policyRule: {type: string, x-nullable: true}
+
+  FileSystemItem:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - relativePath
+      - itemType
+      - extension
+      - sizeBytes
+      - createdUtc
+      - modifiedUtc
+      - isHidden
+      - isReadOnly
+      - hash
+    properties:
+      name: {type: string}
+      relativePath: {type: string}
+      itemType:
+        type: string
+        enum: [FILE, DIRECTORY, REPARSE_POINT, OTHER]
+      extension: {type: string, x-nullable: true}
+      sizeBytes: {type: integer, format: int64, x-nullable: true}
+      createdUtc: {type: string, format: date-time, x-nullable: true}
+      modifiedUtc: {type: string, format: date-time, x-nullable: true}
+      isHidden: {type: boolean, default: false}
+      isReadOnly: {type: boolean, default: false}
+      hash:
+        type: string
+        x-nullable: true
+        minLength: 71
+        maxLength: 71
+        pattern: '^sha256:[0-9A-Fa-f]{64}$'
+
+  ContentMatch:
+    type: object
+    additionalProperties: false
+    required:
+      - relativePath
+      - lineNumber
+      - columnNumber
+      - matchedText
+      - lineText
+      - beforeText
+      - afterText
+    properties:
+      relativePath: {type: string}
+      lineNumber: {type: integer, format: int32}
+      columnNumber: {type: integer, format: int32}
+      matchedText: {type: string}
+      lineText: {type: string}
+      beforeText: {type: string, x-nullable: true}
+      afterText: {type: string, x-nullable: true}

@@ -1,0 +1,57 @@
+server:
+  host: "127.0.0.1"
+  port: 8000
+  log_directory: "D:\\CopilotPOC\\Logs"
+  default_timeout_seconds: 20
+  maximum_timeout_seconds: 60
+  maximum_stdout_characters: 100000
+  maximum_stderr_characters: 20000
+
+workspaces:
+  demo:
+    root: "D:\\CopilotPOC\\Workspace"
+    recycle_root: "D:\\CopilotPOC\\.recycle\\demo"
+
+    permissions:
+      read: true
+      create: true
+      update: true
+      delete: true
+      move: true
+      copy: true
+      search: true
+      execute_command: true
+
+    policy:
+      allowed_extensions:
+        - ".txt"
+        - ".md"
+        - ".json"
+        - ".yaml"
+        - ".yml"
+        - ".csv"
+        - ".xml"
+        - ".py"
+        - ".ps1"
+        - ".html"
+        - ".css"
+        - ".js"
+        - ".ts"
+      maximum_file_size_bytes: 5242880
+      maximum_write_characters: 1000000
+      maximum_search_results: 500
+      maximum_search_depth: 20
+      allow_hidden_items: false
+      allow_reparse_points: false
+      allow_workspace_root_operation: false
+
+    command_policy:
+      allowed_commands:
+        - "Get-ChildItem"
+        - "Get-Content"
+        - "Test-Path"
+        - "Get-Item"
+        - "Select-String"
+      maximum_arguments: 20
+      allow_environment_variables: false
+      allow_wildcards: false

@@ -1,0 +1,17 @@
+[project]
+name = "copilot-local-filesystem-broker"
+version = "0.1.0"
+description = "A constrained local filesystem broker for Microsoft Copilot."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
