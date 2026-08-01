@@ -55,3 +55,122 @@ workspaces:
       maximum_arguments: 20
       allow_environment_variables: false
       allow_wildcards: false
+
+  mmksi_dnet:
+    root: 'D:\Users\bsi91071\repos\MMKSI_DNET'
+    recycle_root: 'D:\Users\bsi91071\repos\.recycle\mmksi_dnet'
+
+    permissions:
+      read: true
+      create: true
+      update: true
+      delete: true
+      move: true
+      copy: true
+      search: true
+      execute_command: true
+
+    policy:
+      allowed_extensions:
+        - ".20150526"
+        - ".7z"
+        - ".addeventcode7dfu"
+        - ".afp"
+        - ".asax"
+        - ".ascx"
+        - ".asp"
+        - ".aspx"
+        - ".bak"
+        - ".bat"
+        - ".bmp"
+        - ".cfc"
+        - ".cfm"
+        - ".cmd"
+        - ".config"
+        - ".cs"
+        - ".cshtml"
+        - ".csproj"
+        - ".css"
+        - ".csv"
+        - ".db"
+        - ".dll"
+        - ".docx"
+        - ".eot"
+        - ".exe"
+        - ".fxcop"
+        - ".gif"
+        - ".htc"
+        - ".htm"
+        - ".html"
+        - ".http"
+        - ".ico"
+        - ".installlog"
+        - ".jpg"
+        - ".js"
+        - ".json"
+        - ".key"
+        - ".lasso"
+        - ".log4net"
+        - ".map"
+        - ".master"
+        - ".md"
+        - ".myapp"
+        - ".old"
+        - ".otf"
+        - ".pdf"
+        - ".php"
+        - ".pl"
+        - ".png"
+        - ".pubxml"
+        - ".py"
+        - ".qa"
+        - ".r1245"
+        - ".r252"
+        - ".regnumber"
+        - ".resx"
+        - ".sapwsdl"
+        - ".scss"
+        - ".settings"
+        - ".sln"
+        - ".sql"
+        - ".sqlproj"
+        - ".strings"
+        - ".svg"
+        - ".table"
+        - ".ttf"
+        - ".txt"
+        - ".vb"
+        - ".vbhtml"
+        - ".vbproj"
+        - ".vdproj"
+        - ".wav"
+        - ".webmanifest"
+        - ".woff"
+        - ".woff2"
+        - ".xls"
+        - ".xlsx"
+        - ".xml"
+        - ".xsc"
+        - ".xsd"
+        - ".xslt"
+        - ".xss"
+        - ".xsx"
+        - ".yml"
+      maximum_file_size_bytes: 5242880
+      maximum_write_characters: 1000000
+      maximum_search_results: 500
+      maximum_search_depth: 20
+      allow_hidden_items: false
+      allow_reparse_points: false
+      allow_workspace_root_operation: false
+
+    command_policy:
+      allowed_commands:
+        - "Get-ChildItem"
+        - "Get-Content"
+        - "Test-Path"
+        - "Get-Item"
+        - "Select-String"
+      maximum_arguments: 20
+      allow_environment_variables: false
+      allow_wildcards: false

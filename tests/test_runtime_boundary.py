@@ -150,13 +150,13 @@ def test_configured_timeout_default_applies_only_when_omitted(
 
 
 @pytest.mark.parametrize('path', ['/docs', '/redoc', '/openapi.json'])
-def test_undeclared_fastapi_documentation_routes_are_disabled(
+def test_fastapi_documentation_routes_are_enabled(
     app_config: AppConfig,
     path: str,
 ) -> None:
     response = TestClient(create_app(app_config)).get(path)
 
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 def test_module_launcher_uses_configured_host_and_port(

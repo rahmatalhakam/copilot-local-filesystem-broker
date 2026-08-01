@@ -4,10 +4,12 @@ import json
 import logging
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError as FastAPIValidationError
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -21,6 +23,7 @@ from app.response_factory import make_error_response
 
 _LOGGER = logging.getLogger("copilot_file_broker")
 _EXECUTE_PATH = "/api/v1/filesystem/execute"
+_SWAGGER_SPEC_PATH = Path(__file__).resolve().parents[1] / "swagger" / "api-definition.swagger.yaml"
 _CONFLICT_CODES = {
     "HASH_MISMATCH",
     "LAST_MODIFIED_MISMATCH",
@@ -283,9 +286,9 @@ class RequestBodyLimitMiddleware:
 
 def create_app(app_config: AppConfig) -> FastAPI:
     application = FastAPI(
-        docs_url=None,
-        redoc_url=None,
-        openapi_url=None,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
         title="Copilot Local Filesystem Broker",
         version="1.0.0",
         description=(
@@ -340,6 +343,59 @@ def create_app(app_config: AppConfig) -> FastAPI:
             "status": "healthy",
             "service": "copilot-local-filesystem-broker",
         }
+
+    @application.get("/swagger/api-definition.swagger.yaml")
+    def swagger_spec() -> FileResponse:
+        return FileResponse(
+            _SWAGGER_SPEC_PATH,
+            media_type="application/yaml",
+            filename="api-definition.swagger.yaml",
+        )
+
+    @application.get("/swagger-ui")
+    def swagger_ui() -> HTMLResponse:
+        html = """
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot Local Filesystem Broker Swagger UI</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #f7f7f7;
+      }
+      #swagger-ui {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: "/swagger/api-definition.swagger.yaml",
+          dom_id: "#swagger-ui",
+          deepLinking: true,
+          presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIStandalonePreset
+          ],
+          layout: "BaseLayout"
+        });
+      };
+    </script>
+  </body>
+</html>
+        """
+        return HTMLResponse(html)
 
     @application.post(
         _EXECUTE_PATH,
