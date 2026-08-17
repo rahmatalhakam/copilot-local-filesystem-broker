@@ -187,7 +187,9 @@ def validate_operation_request(request: FileOperationRequest) -> None:
         request,
         "caseSensitive",
         {Operation.REPLACE_TEXT, Operation.SEARCH_CONTENT},
-        active=request.caseSensitive,
+        # caseSensitive defaults to True, so only an explicitly provided
+        # value counts as active for applicability validation.
+        active="caseSensitive" in request.model_fields_set,
     )
     _reject_value_unless(
         request,
@@ -283,7 +285,7 @@ def _metadata_values(
 ) -> dict[str, Any]:
     if not include:
         # Hash selection is independent from the remaining metadata fields.
-        # make_item computes it only when returnHash was requested.
+        # Mutating operations always compute it; reads only on returnHash.
         return {'hash': item.hash} if item.hash is not None else {}
     return {
         "name": item.name,
@@ -353,7 +355,7 @@ def dispatch(
             overwrite=request.overwrite,
             create_parents=request.createParentDirectories,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "File created successfully.",
             exists=True,
@@ -437,7 +439,7 @@ def dispatch(
             expected_hash=request.expectedHash,
             expected_modified=request.expectedLastModifiedUtc,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "File updated successfully.",
             exists=True,
@@ -455,7 +457,7 @@ def dispatch(
             append_newline=request.appendNewLine,
             expected_hash=request.expectedHash,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "Content appended successfully.",
             exists=True,
@@ -474,15 +476,11 @@ def dispatch(
             case_sensitive=request.caseSensitive,
             use_regex=request.useRegex,
             whole_word=request.wholeWord,
-            expected_occurrences=(
-                request.expectedOccurrences
-                if "expectedOccurrences" in request.model_fields_set
-                else None
-            ),
+            expected_occurrences=request.expectedOccurrences,
             replace_all=request.replaceAll,
             expected_hash=request.expectedHash,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             f"Replaced {replacements} occurrence(s).",
             exists=True,
@@ -529,7 +527,7 @@ def dispatch(
             overwrite=request.overwrite,
             create_parents=request.createParentDirectories,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "Item moved successfully.",
             exists=True,
@@ -547,7 +545,7 @@ def dispatch(
             recursive=request.recursive,
             create_parents=request.createParentDirectories,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "Item copied successfully.",
             exists=True,

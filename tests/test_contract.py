@@ -27,6 +27,7 @@ REQUEST_NULLABLE_SCALARS = {
     'namePattern',
     'expectedHash',
     'expectedLastModifiedUtc',
+    'expectedOccurrences',
     'shellCommand',
     'reason',
     'correlationId',
@@ -127,7 +128,7 @@ def test_request_bounds_and_hash_pattern_match_runtime_validation() -> None:
     ]
 
     assert properties['content']['maxLength'] == 1000000
-    assert properties['searchText']['maxLength'] == 200
+    assert properties['searchText']['maxLength'] == 10000
     assert properties['replacementText']['maxLength'] == 1000000
     assert properties['shellArguments']['items']['maxLength'] == 1000
     assert properties['expectedHash']['minLength'] == 71

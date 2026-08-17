@@ -42,6 +42,7 @@ _DEFAULT_MAXIMUM_SEARCH_RESULTS = 500
 _DEFAULT_MAXIMUM_SEARCH_DEPTH = 20
 _DEFAULT_MAXIMUM_SEARCH_ENTRIES = 10_000
 _MAXIMUM_REGEX_CHARACTERS = 200
+_MAXIMUM_LITERAL_SEARCH_CHARACTERS = 10000
 _MAXIMUM_MATCH_TEXT_CHARACTERS = 1_000
 _PATH_LOCKS = tuple(RLock() for _ in range(128))
 
@@ -447,14 +448,8 @@ def _update_file_unlocked(
     data = decode_request_content(content, encoding)
     _ensure_file_size_limit(workspace, len(data), action="write")
     check_expected_version(target, expected_hash, expected_modified)
-
-    target = resolve_workspace_path(
-        workspace,
-        relative_path,
-        must_exist=True,
-    )
-    _ensure_file_target(workspace, target)
-    check_expected_version(target, expected_hash, expected_modified)
+    # The version is re-verified once more right before os.replace below,
+    # so an extra intermediate re-resolve/check added no protection.
     temporary = _write_temporary_file(target, data)
     try:
         target = resolve_workspace_path(workspace, relative_path, must_exist=True)
@@ -510,24 +505,38 @@ def _append_file_unlocked(
 
     if encoding == "base64":
         _ensure_write_character_limit(workspace, content)
-        appended = decode_request_content(content, encoding)
-        if append_newline:
-            appended += b"\r\n"
-        data = existing_bytes + appended
+        # Binary content is appended verbatim: a text newline would
+        # corrupt Base64 payloads, so appendNewLine is ignored here.
+        data = existing_bytes + decode_request_content(content, encoding)
     else:
         existing = encode_response_content(existing_bytes, encoding)
-        updated = existing + content + ("\r\n" if append_newline else "")
-        _ensure_write_character_limit(workspace, updated)
+        # The appended text inherits the file's existing line ending, and a
+        # separator keeps the new content off the current last line.
+        use_crlf = "\r\n" in existing
+        newline = "\r\n" if use_crlf else "\n"
+        aligned = _align_newlines(content, use_crlf)
+        separator = (
+            newline
+            if append_newline
+            and existing
+            and not existing.endswith(("\n", "\r"))
+            else ""
+        )
+        # Only the appended text counts against the character limit: the
+        # combined result is still bounded by maximum_file_size_bytes below,
+        # and a small append must not fail just because the file is large.
+        _ensure_write_character_limit(workspace, content)
+        updated = (
+            existing
+            + separator
+            + aligned
+            + (newline if append_newline else "")
+        )
         data = decode_request_content(updated, encoding)
 
     _ensure_file_size_limit(workspace, len(data), action="write")
-    target = resolve_workspace_path(
-        workspace,
-        relative_path,
-        must_exist=True,
-    )
-    _ensure_file_target(workspace, target)
-    check_expected_version(target, expected_hash, None)
+    # The version was checked before reading and is re-verified right
+    # before os.replace below; the intermediate check added no protection.
     temporary = _write_temporary_file(target, data)
     try:
         target = resolve_workspace_path(workspace, relative_path, must_exist=True)
@@ -567,7 +576,7 @@ def _replace_text_unlocked(
     replacement_text: str,
     *,
     encoding: str = "utf-8",
-    case_sensitive: bool = False,
+    case_sensitive: bool = True,
     use_regex: bool = False,
     whole_word: bool = False,
     expected_occurrences: int | None = None,
@@ -598,6 +607,12 @@ def _replace_text_unlocked(
             "maximum-write-characters",
         )
     check_expected_version(target, expected_hash, None)
+    if expected_occurrences is not None and expected_occurrences < 1:
+        raise _violation(
+            "INVALID_EXPECTED_OCCURRENCES",
+            "expectedOccurrences must be at least 1 when provided.",
+            "expected-replacement-occurrences",
+        )
     if expected_occurrences is None and not replace_all:
         # A single targeted replacement stays assertive by default.
         expected_occurrences = 1
@@ -607,22 +622,44 @@ def _replace_text_unlocked(
         use_regex=use_regex,
         whole_word=whole_word,
     )
+    file_uses_crlf = '\r\n' in text
+    # Regex matching runs against LF-normalized text so `\n` in a pattern
+    # matches CRLF files exactly as literal searches already do; the result
+    # is realigned to the file's CRLF endings before it is written back.
+    normalized_match = use_regex and file_uses_crlf
+    haystack = _normalize_newlines(text) if normalized_match else text
     # Every match is counted: the file is already bounded by
     # maximum_write_characters, and an accurate count is what makes the
     # mismatch message actionable.
-    matches = list(pattern.finditer(text))
+    matches = list(pattern.finditer(haystack))
     count = len(matches)
     if expected_occurrences is not None and count != expected_occurrences:
+        if count == 0:
+            hint = (
+                " The searchText was not found; re-read the file and"
+                " check that it matches exactly, including whitespace."
+            )
+        elif count > expected_occurrences:
+            hint = (
+                " Add surrounding context to make the searchText unique,"
+                f" or set expectedOccurrences={count} with replaceAll to"
+                " replace every match."
+            )
+        else:
+            hint = f" Set expectedOccurrences={count} if that is intended."
         raise _violation(
             "UNEXPECTED_MATCH_COUNT",
-            f"Expected {expected_occurrences} match(es), found {count}.",
+            f"Expected {expected_occurrences} match(es), found {count}."
+            + hint,
             "expected-replacement-occurrences",
         )
 
     if count == 0:
         raise _violation(
             "UNEXPECTED_MATCH_COUNT",
-            "Expected at least 1 match(es), found 0.",
+            "Expected at least 1 match(es), found 0. The searchText was"
+            " not found; re-read the file and check that it matches"
+            " exactly, including whitespace.",
             "expected-replacement-occurrences",
         )
 
@@ -630,15 +667,17 @@ def _replace_text_unlocked(
     # replaces every match (replace_all) or exactly the asserted number of
     # matches, which the guard above has already proven equals `count`.
     replacement_count = count
-    projected_size = len(text)
-    file_uses_crlf = '\r\n' in text
+    projected_size = len(haystack)
+    # In normalized-match mode replacements stay LF during substitution and
+    # the whole document is realigned to CRLF once at the end.
+    align_crlf = file_uses_crlf and not normalized_match
     try:
         for found in matches[:replacement_count]:
             expanded = _align_newlines(
                 found.expand(replacement_text)
                 if use_regex
                 else replacement_text,
-                file_uses_crlf,
+                align_crlf,
             )
             projected_size += len(expanded) - len(found.group(0))
         if projected_size > maximum:
@@ -651,15 +690,15 @@ def _replace_text_unlocked(
             def replacement(match: re.Match[str]) -> str:
                 return _align_newlines(
                     match.expand(replacement_text),
-                    file_uses_crlf,
+                    align_crlf,
                 )
         else:
             def replacement(_match: re.Match[str]) -> str:
-                return _align_newlines(replacement_text, file_uses_crlf)
+                return _align_newlines(replacement_text, align_crlf)
 
         updated, replacements = pattern.subn(
             replacement,
-            text,
+            haystack,
             count=replacement_count,
         )
     except re.error as exc:
@@ -668,6 +707,10 @@ def _replace_text_unlocked(
             "The replacement text is invalid for the regular expression.",
             "safe-regular-expression",
         ) from exc
+
+    if normalized_match:
+        # Restore the file's CRLF line endings after normalized matching.
+        updated = _align_newlines(updated, True)
 
     update_file(
         workspace,
@@ -687,7 +730,7 @@ def replace_text(
     replacement_text: str,
     *,
     encoding: str = 'utf-8',
-    case_sensitive: bool = False,
+    case_sensitive: bool = True,
     use_regex: bool = False,
     whole_word: bool = False,
     expected_occurrences: int | None = None,
@@ -1253,7 +1296,12 @@ def _compile_pattern(
 ) -> re.Pattern[str]:
     if not search_text:
         raise _violation('EMPTY_SEARCH_TEXT', 'Search text cannot be empty.', 'non-empty-search-text')
-    if len(search_text) > _MAXIMUM_REGEX_CHARACTERS:
+    limit = (
+        _MAXIMUM_REGEX_CHARACTERS
+        if use_regex
+        else _MAXIMUM_LITERAL_SEARCH_CHARACTERS
+    )
+    if len(search_text) > limit:
         raise _violation(
             'SEARCH_TEXT_LIMIT_EXCEEDED',
             'Search text exceeds the configured safe limit.',
@@ -1562,7 +1610,11 @@ def search_content(
         must_exist=True,
         allow_root=True,
     )
-    if not root.is_dir() or is_reparse_point(root):
+    if is_reparse_point(root):
+        raise NotADirectoryError(root)
+    # A file target searches just that file; a directory is walked.
+    single_file = root.is_file()
+    if not single_file and not root.is_dir():
         raise NotADirectoryError(root)
     depth, page_limit, scan_cap = _search_limits(
         workspace,
@@ -1592,6 +1644,9 @@ def search_content(
         include_hidden=include_hidden,
         scan_cap=scan_cap,
     )
+    if single_file:
+        # The candidate generator is lazy; override it for a file.
+        candidates = iter([root])
     # Pagination walks the match stream directly: only the requested window
     # [skip, skip + page_limit) is materialized, and counting continues to
     # `skip + result_cap` so a follow-up request with a larger `skip` can
@@ -1612,6 +1667,10 @@ def search_content(
         text = _read_searchable_text(workspace, path)
         if text is None:
             continue
+        if use_regex:
+            # Regex matching sees LF-normalized text so `\n` in a pattern
+            # matches CRLF files, mirroring literal search and REPLACE_TEXT.
+            text = _normalize_newlines(text)
         relative = str(path.relative_to(workspace.root))
         # The whole file is searched, not each line in isolation, so a
         # multi-line search text behaves exactly as it does in REPLACE_TEXT.

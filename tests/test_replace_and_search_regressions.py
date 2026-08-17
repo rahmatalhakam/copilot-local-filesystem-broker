@@ -342,3 +342,182 @@ def test_crlf_search_text_matches_an_lf_file(workspace: Workspace) -> None:
 
     assert count == 1
     assert target.read_bytes() == b"merged\n"
+
+# --------------------------------------------------------------------------
+# expected_occurrences contract
+# --------------------------------------------------------------------------
+
+
+def test_expected_occurrences_below_one_is_rejected(
+    workspace: Workspace,
+) -> None:
+    target = _write(workspace, "guard.txt", "alpha alpha\n")
+
+    with pytest.raises(PolicyViolation) as error:
+        replace_text(
+            workspace,
+            "guard.txt",
+            "alpha",
+            "beta",
+            expected_occurrences=0,
+            replace_all=True,
+        )
+
+    assert error.value.code == "INVALID_EXPECTED_OCCURRENCES"
+    assert target.read_text(encoding="utf-8") == "alpha alpha\n"
+
+
+def test_request_schema_defaults_expected_occurrences_to_unset() -> None:
+    from pydantic import ValidationError
+
+    from app.models import FileOperationRequest
+
+    request = FileOperationRequest(operation="REPLACE_TEXT", workspace="w")
+    assert request.expectedOccurrences is None
+
+    with pytest.raises(ValidationError):
+        FileOperationRequest(
+            operation="REPLACE_TEXT",
+            workspace="w",
+            expectedOccurrences=0,
+        )
+
+
+# --------------------------------------------------------------------------
+# Regex line endings + actionable mismatch hints (batch 4)
+# --------------------------------------------------------------------------
+
+
+def test_regex_newline_replaces_in_a_crlf_file(workspace: Workspace) -> None:
+    target = workspace.root / "crlf-regex.txt"
+    target.write_bytes(b"alpha\r\nbeta\r\ngamma\r\n")
+
+    _, count = replace_text(
+        workspace,
+        "crlf-regex.txt",
+        r"alpha\nbeta",
+        "one\ntwo",
+        use_regex=True,
+    )
+
+    assert count == 1
+    # `\n` in the pattern matches CRLF, and the endings survive the edit.
+    assert target.read_bytes() == b"one\r\ntwo\r\ngamma\r\n"
+
+
+def test_regex_newline_search_matches_a_crlf_file(
+    workspace: Workspace,
+) -> None:
+    target = workspace.root / "crlf-regex-search.txt"
+    target.write_bytes(b"alpha\r\nbeta\r\n")
+
+    settings = dict(SEARCH_DEFAULTS)
+    settings["use_regex"] = True
+    matches, total = search_content(
+        workspace,
+        ".",
+        r"alpha\nbeta",
+        max_results=10,
+        **settings,
+    )
+
+    assert total == 1
+    assert matches[0].lineNumber == 1
+    assert matches[0].lineText == "alpha"
+
+
+def test_mismatch_message_suggests_the_actual_count(
+    workspace: Workspace,
+) -> None:
+    _write(workspace, "hint.txt", "alpha alpha alpha")
+
+    with pytest.raises(PolicyViolation) as error:
+        replace_text(workspace, "hint.txt", "alpha", "beta")
+
+    assert error.value.code == "UNEXPECTED_MATCH_COUNT"
+    assert "found 3" in error.value.message
+    # The message tells the caller exactly how to resolve the mismatch.
+    assert "expectedOccurrences=3" in error.value.message
+
+
+def test_zero_match_message_says_the_text_was_not_found(
+    workspace: Workspace,
+) -> None:
+    _write(workspace, "missing.txt", "alpha")
+
+    with pytest.raises(PolicyViolation) as error:
+        replace_text(workspace, "missing.txt", "gamma", "beta")
+
+    assert error.value.code == "UNEXPECTED_MATCH_COUNT"
+    assert "not found" in error.value.message
+
+# --------------------------------------------------------------------------
+# R3: caseSensitive defaults to True
+# --------------------------------------------------------------------------
+
+
+def test_replace_is_case_sensitive_by_default(workspace: Workspace) -> None:
+    target = _write(workspace, "casing.txt", "Alpha alpha\n")
+
+    _, count = replace_text(workspace, "casing.txt", "alpha", "beta")
+
+    assert count == 1
+    assert target.read_text(encoding="utf-8") == "Alpha beta\n"
+
+
+def test_replace_can_opt_out_of_case_sensitivity(workspace: Workspace) -> None:
+    target = _write(workspace, "casing_opt_out.txt", "Alpha alpha\n")
+
+    _, count = replace_text(
+        workspace,
+        "casing_opt_out.txt",
+        "alpha",
+        "beta",
+        case_sensitive=False,
+        replace_all=True,
+    )
+
+    assert count == 2
+    assert target.read_text(encoding="utf-8") == "beta beta\n"
+
+
+def test_request_model_defaults_to_case_sensitive() -> None:
+    from app.models import FileOperationRequest, Operation
+
+    request = FileOperationRequest(
+        operation=Operation.REPLACE_TEXT,
+        workspace="demo",
+        path="example.txt",
+        searchText="alpha",
+        replacementText="beta",
+    )
+
+    assert request.caseSensitive is True
+
+
+def test_default_case_sensitive_does_not_invalidate_other_operations() -> None:
+    from app.dispatcher import validate_operation_request
+    from app.errors import RequestValidationError
+    from app.models import FileOperationRequest, Operation
+
+    # The implicit default must not trip field-applicability validation.
+    validate_operation_request(
+        FileOperationRequest(
+            operation=Operation.READ_FILE,
+            workspace="demo",
+            path="example.txt",
+        )
+    )
+
+    # An explicitly provided value on an inapplicable operation still fails.
+    with pytest.raises(RequestValidationError):
+        validate_operation_request(
+            FileOperationRequest.model_validate(
+                {
+                    "operation": "READ_FILE",
+                    "workspace": "demo",
+                    "path": "example.txt",
+                    "caseSensitive": True,
+                }
+            )
+        )

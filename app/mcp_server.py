@@ -26,7 +26,24 @@ def create_mcp_server(app_config: AppConfig) -> MCPServer:
         description=(
             "Execute one controlled local workspace filesystem operation. "
             "Use configured workspace aliases and relative paths only. "
-            "The response is always the broker's structured operation result."
+            "The response is always the broker's structured operation result. "
+            "Guidance: (1) Every successful write (CREATE_FILE, UPDATE_FILE, "
+            "APPEND_FILE, REPLACE_TEXT, MOVE, COPY) returns the file's new "
+            "sha256 hash; pass it as expectedHash on the next edit to detect "
+            "concurrent changes. (2) REPLACE_TEXT replaces exactly 1 "
+            "occurrence by default and fails without writing if the count "
+            "differs; set replaceAll=true or expectedOccurrences=N for "
+            "multiple. Matching is case-sensitive by default; set "
+            "caseSensitive=false to ignore case. Literal searchText may be up to 10000 "
+            "characters; regex is capped at 200 and denies groups, "
+            "alternation, and repeated wildcards. (3) Line endings are "
+            "handled automatically: '\\n' in searchText matches CRLF files "
+            "(literal and regex) and written text inherits the file's "
+            "existing line endings. (4) SEARCH_CONTENT accepts a directory "
+            "or a single file path and searches whole-file text, so "
+            "multi-line searchText works. (5) UPDATE_FILE and REPLACE_TEXT "
+            "require an existing file; use CREATE_FILE with overwrite=true "
+            "to upsert."
         ),
     )
     def execute_workspace_file_operation(

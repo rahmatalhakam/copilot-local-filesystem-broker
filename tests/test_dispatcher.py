@@ -158,6 +158,7 @@ def test_dispatch_create_list_search_move_copy_and_recycle_flow(
             workspace="test",
             path=".",
             searchText="NEEDLE",
+            caseSensitive=False,
             recursive=True,
         ),
     )
@@ -343,3 +344,60 @@ def test_dispatch_unknown_workspace_fails_closed(
         dispatch(app_config, request)
 
     assert raised.value.code == "WORKSPACE_NOT_FOUND"
+
+def test_write_operations_always_return_the_new_hash(
+    app_config: AppConfig,
+) -> None:
+    created = dispatch(
+        app_config,
+        FileOperationRequest(
+            operation="CREATE_FILE",
+            workspace="test",
+            path="hash.txt",
+            content="one",
+        ),
+    )
+    updated = dispatch(
+        app_config,
+        FileOperationRequest(
+            operation="UPDATE_FILE",
+            workspace="test",
+            path="hash.txt",
+            content="two",
+        ),
+    )
+    appended = dispatch(
+        app_config,
+        FileOperationRequest(
+            operation="APPEND_FILE",
+            workspace="test",
+            path="hash.txt",
+            content="three",
+        ),
+    )
+    replaced = dispatch(
+        app_config,
+        FileOperationRequest(
+            operation="REPLACE_TEXT",
+            workspace="test",
+            path="hash.txt",
+            searchText="three",
+            replacementText="four",
+        ),
+    )
+    read_back = dispatch(
+        app_config,
+        FileOperationRequest(
+            operation="READ_FILE",
+            workspace="test",
+            path="hash.txt",
+        ),
+    )
+
+    # Every mutation reports the resulting hash even without returnHash,
+    # so agents can chain optimistic-concurrency edits for free.
+    for response in (created, updated, appended, replaced):
+        assert response.hash and response.hash.startswith("sha256:")
+    # Reads still compute the hash only on request.
+    assert read_back.hash is None
+

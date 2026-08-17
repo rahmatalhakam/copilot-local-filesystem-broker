@@ -327,7 +327,7 @@ def test_content_search_bounds_literal_search_text(workspace: Workspace):
     _write(workspace.root, 'content.txt', 'safe')
 
     with pytest.raises(PolicyViolation) as caught:
-        _search_content(workspace, 'a' * 201, use_regex=False)
+        _search_content(workspace, 'a' * 10001, use_regex=False)
 
     assert caught.value.code == 'SEARCH_TEXT_LIMIT_EXCEEDED'
 
@@ -417,3 +417,45 @@ def test_content_search_honors_name_pattern_and_extension(
 
     assert total == 1
     assert [match.relativePath for match in matches] == ["include.txt"]
+
+def test_long_literal_search_text_is_matched(workspace: Workspace):
+    needle = "n" * 500
+    _write(workspace.root, "long.txt", f"prefix {needle} suffix")
+
+    matches, total = _search_content(workspace, needle)
+
+    assert total == 1
+    assert matches[0].columnNumber == 8
+
+
+def test_regex_search_text_keeps_the_tight_bound(workspace: Workspace):
+    _write(workspace.root, "content.txt", "safe")
+
+    with pytest.raises(PolicyViolation) as caught:
+        _search_content(workspace, "a" * 201, use_regex=True)
+
+    assert caught.value.code == "SEARCH_TEXT_LIMIT_EXCEEDED"
+
+
+def test_content_search_accepts_a_single_file_path(workspace: Workspace):
+    _write(workspace.root, "one.txt", "needle here")
+    _write(workspace.root, "two.txt", "needle there")
+
+    matches, total = search_content(
+        workspace,
+        "one.txt",
+        "needle",
+        recursive=False,
+        max_depth=0,
+        search_pattern=None,
+        extension=None,
+        case_sensitive=False,
+        use_regex=False,
+        whole_word=False,
+        max_results=10,
+        skip=0,
+    )
+
+    assert total == 1
+    assert [match.relativePath for match in matches] == ["one.txt"]
+

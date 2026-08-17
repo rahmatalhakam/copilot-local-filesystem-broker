@@ -141,7 +141,7 @@ definitions:
         type: string
         x-nullable: true
         x-ms-summary: Search text
-        maxLength: 200
+        maxLength: 10000
       replacementText:
         type: string
         x-nullable: true
@@ -152,9 +152,9 @@ definitions:
         format: int32
         x-ms-summary: Expected occurrences
         x-ms-visibility: advanced
-        minimum: 0
+        x-nullable: true
+        minimum: 1
         maximum: 10000
-        default: 1
       replaceAll:
         type: boolean
         x-ms-summary: Replace all
@@ -164,7 +164,7 @@ definitions:
         type: boolean
         x-ms-summary: Case sensitive
         x-ms-visibility: advanced
-        default: false
+        default: true
       useRegex:
         type: boolean
         x-ms-summary: Use regular expression
