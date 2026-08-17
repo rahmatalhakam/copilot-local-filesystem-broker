@@ -300,13 +300,16 @@ def _pagination_values(
     returned: int,
     total: int,
     skip: int,
+    truncated: bool = False,
 ) -> dict[str, Any]:
+    # `truncated` marks a result set clipped by maximum_search_results: the
+    # caller must be told more matches exist even though they are not pageable.
     has_more = skip + returned < total
     return {
         "affectedCount": returned,
         "totalResults": total,
         "returnedResults": returned,
-        "hasMore": has_more,
+        "hasMore": has_more or truncated,
         "nextSkip": skip + returned if has_more else None,
     }
 
@@ -471,7 +474,11 @@ def dispatch(
             case_sensitive=request.caseSensitive,
             use_regex=request.useRegex,
             whole_word=request.wholeWord,
-            expected_occurrences=request.expectedOccurrences,
+            expected_occurrences=(
+                request.expectedOccurrences
+                if "expectedOccurrences" in request.model_fields_set
+                else None
+            ),
             replace_all=request.replaceAll,
             expected_hash=request.expectedHash,
         )
@@ -550,7 +557,7 @@ def dispatch(
         )
 
     if operation == Operation.SEARCH_FILES:
-        items, total = search_files(
+        items, total, truncated = search_files(
             workspace,
             request.path,
             recursive=request.recursive,
@@ -563,19 +570,26 @@ def dispatch(
             include_hidden=request.includeHidden,
             max_results=request.maxResults,
             skip=request.skip,
+            return_truncated=True,
         )
         return response(
-            "File search completed.",
+            (
+                "File search completed; the result limit was reached."
+                if truncated
+                else "File search completed."
+            ),
+            status=Status.PARTIAL if truncated else Status.COMPLETED,
             items=items,
             **_pagination_values(
                 returned=len(items),
                 total=total,
                 skip=request.skip,
+                truncated=truncated,
             ),
         )
 
     if operation == Operation.SEARCH_CONTENT:
-        matches, total = search_content(
+        matches, total, truncated = search_content(
             workspace,
             request.path,
             request.searchText,
@@ -588,14 +602,22 @@ def dispatch(
             whole_word=request.wholeWord,
             max_results=request.maxResults,
             skip=request.skip,
+            include_hidden=request.includeHidden,
+            return_truncated=True,
         )
         return response(
-            "Content search completed.",
+            (
+                "Content search completed; the result limit was reached."
+                if truncated
+                else "Content search completed."
+            ),
+            status=Status.PARTIAL if truncated else Status.COMPLETED,
             matches=matches,
             **_pagination_values(
                 returned=len(matches),
                 total=total,
                 skip=request.skip,
+                truncated=truncated,
             ),
         )
 

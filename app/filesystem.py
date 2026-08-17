@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import codecs
 import fnmatch
 import hashlib
 import hmac
@@ -10,6 +11,7 @@ import re
 import shutil
 import stat
 import uuid
+from bisect import bisect_right
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -562,7 +564,7 @@ def _replace_text_unlocked(
     case_sensitive: bool = False,
     use_regex: bool = False,
     whole_word: bool = False,
-    expected_occurrences: int = 1,
+    expected_occurrences: int | None = None,
     replace_all: bool = False,
     expected_hash: str | None = None,
 ) -> tuple[Path, int]:
@@ -590,55 +592,69 @@ def _replace_text_unlocked(
             "maximum-write-characters",
         )
     check_expected_version(target, expected_hash, None)
+    if expected_occurrences is None and not replace_all:
+        # A single targeted replacement stays assertive by default.
+        expected_occurrences = 1
     pattern = _compile_pattern(
         search_text,
         case_sensitive=case_sensitive,
         use_regex=use_regex,
         whole_word=whole_word,
     )
-    matches = []
-    for found in pattern.finditer(text):
-        matches.append(found)
-        if len(matches) > expected_occurrences:
-            break
+    # Every match is counted: the file is already bounded by
+    # maximum_write_characters, and an accurate count is what makes the
+    # mismatch message actionable.
+    matches = list(pattern.finditer(text))
     count = len(matches)
-    if count != expected_occurrences:
+    if expected_occurrences is not None and count != expected_occurrences:
         raise _violation(
             "UNEXPECTED_MATCH_COUNT",
             f"Expected {expected_occurrences} match(es), found {count}.",
             "expected-replacement-occurrences",
         )
 
-    replacement_count = count if replace_all else min(count, 1)
+    if count == 0:
+        raise _violation(
+            "UNEXPECTED_MATCH_COUNT",
+            "Expected at least 1 match(es), found 0.",
+            "expected-replacement-occurrences",
+        )
+
+    # Never write a partial edit while reporting success: the caller either
+    # replaces every match (replace_all) or exactly the asserted number of
+    # matches, which the guard above has already proven equals `count`.
+    replacement_count = count
     projected_size = len(text)
+    file_uses_crlf = '\r\n' in text
     try:
         for found in matches[:replacement_count]:
-            expanded = (
+            expanded = _align_newlines(
                 found.expand(replacement_text)
                 if use_regex
-                else replacement_text
+                else replacement_text,
+                file_uses_crlf,
             )
             projected_size += len(expanded) - len(found.group(0))
-        maximum = _policy_int(
-            workspace,
-            'maximum_write_characters',
-            _DEFAULT_MAXIMUM_WRITE_CHARACTERS,
-        )
         if projected_size > maximum:
             raise _violation(
                 'CONTENT_LIMIT_EXCEEDED',
                 'Replacement output exceeds the configured limit.',
                 'maximum-write-characters',
             )
-        replacement = (
-            replacement_text
-            if use_regex
-            else lambda _match: replacement_text
-        )
+        if use_regex:
+            def replacement(match: re.Match[str]) -> str:
+                return _align_newlines(
+                    match.expand(replacement_text),
+                    file_uses_crlf,
+                )
+        else:
+            def replacement(_match: re.Match[str]) -> str:
+                return _align_newlines(replacement_text, file_uses_crlf)
+
         updated, replacements = pattern.subn(
             replacement,
             text,
-            count=0 if replace_all else 1,
+            count=replacement_count,
         )
     except re.error as exc:
         raise _violation(
@@ -647,7 +663,6 @@ def _replace_text_unlocked(
             "safe-regular-expression",
         ) from exc
 
-    _ensure_write_character_limit(workspace, updated)
     update_file(
         workspace,
         relative_path,
@@ -669,7 +684,7 @@ def replace_text(
     case_sensitive: bool = False,
     use_regex: bool = False,
     whole_word: bool = False,
-    expected_occurrences: int = 1,
+    expected_occurrences: int | None = None,
     replace_all: bool = False,
     expected_hash: str | None = None,
 ) -> tuple[Path, int]:
@@ -1158,6 +1173,25 @@ def _validate_safe_regex(expression: str) -> None:
         raise _violation('UNSAFE_REGEX', 'Repeated wildcards are denied.', 'safe-regular-expression')
 
 
+def _escape_literal(search_text: str) -> str:
+    # A literal search must not depend on the line ending a file happens to
+    # use. Callers send "\n" (JSON has no other option) while Windows files
+    # are usually CRLF, so every literal newline matches either form.
+    segments = _normalize_newlines(search_text).split('\n')
+    return r'\r?\n'.join(re.escape(segment) for segment in segments)
+
+
+def _normalize_newlines(text: str) -> str:
+    return text.replace('\r\n', '\n').replace('\r', '\n')
+
+
+def _align_newlines(text: str, use_crlf: bool) -> str:
+    # Replacement text inherits the line ending of the file being edited so a
+    # CRLF file never ends up with mixed endings.
+    normalized = _normalize_newlines(text)
+    return normalized.replace('\n', '\r\n') if use_crlf else normalized
+
+
 def _compile_pattern(
     search_text: str,
     *,
@@ -1173,7 +1207,7 @@ def _compile_pattern(
             'Search text exceeds the configured safe limit.',
             'bounded-search-text',
         )
-    expression = search_text if use_regex else re.escape(search_text)
+    expression = search_text if use_regex else _escape_literal(search_text)
     flags = 0 if case_sensitive else re.IGNORECASE
     if use_regex:
         try:
@@ -1304,7 +1338,11 @@ def search_files(
     max_results: int,
     skip: int,
     include_hidden: bool = False,
-) -> tuple[list[FileSystemItem], int]:
+    return_truncated: bool = False,
+) -> (
+    tuple[list[FileSystemItem], int]
+    | tuple[list[FileSystemItem], int, bool]
+):
     root = resolve_workspace_path(
         workspace,
         relative_path,
@@ -1361,6 +1399,7 @@ def search_files(
         _DEFAULT_MAXIMUM_SEARCH_RESULTS,
     )
     capped = filtered[:result_cap]
+    truncated = len(filtered) > result_cap
     total = len(capped)
     page = capped[skip : skip + page_limit]
     items: list[FileSystemItem] = []
@@ -1369,6 +1408,8 @@ def search_files(
             items.append(make_item(workspace, path))
         except FileNotFoundError:
             continue
+    if return_truncated:
+        return items, total, truncated
     return items, total
 
 
@@ -1396,12 +1437,42 @@ def _read_searchable_text(
         return None
     if len(data) > maximum:
         return None
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        # The broker can write UTF-16 files, so it must be able to search them.
+        try:
+            return data.decode('utf-16')
+        except (UnicodeDecodeError, UnicodeError):
+            return None
     if b'\x00' in data:
         return None
     try:
         return data.decode('utf-8-sig')
     except UnicodeDecodeError:
         return None
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    """Return the offset at which every line of `text` begins."""
+
+    offsets = [0]
+    start = text.find('\n')
+    while start != -1:
+        offsets.append(start + 1)
+        start = text.find('\n', start + 1)
+    return offsets
+
+
+def _locate_offset(offsets: list[int], offset: int) -> tuple[int, int]:
+    """Map an absolute offset to a 1-based (line number, column number)."""
+
+    index = bisect_right(offsets, offset) - 1
+    return index + 1, offset - offsets[index] + 1
+
+
+def _line_text(text: str, offsets: list[int], line_index: int) -> str:
+    start = offsets[line_index - 1]
+    end = offsets[line_index] - 1 if line_index < len(offsets) else len(text)
+    return text[start:end].rstrip('\r')
 
 
 def search_content(
@@ -1418,7 +1489,12 @@ def search_content(
     whole_word: bool,
     max_results: int,
     skip: int,
-) -> tuple[list[ContentMatch], int]:
+    include_hidden: bool = False,
+    return_truncated: bool = False,
+) -> (
+    tuple[list[ContentMatch], int]
+    | tuple[list[ContentMatch], int, bool]
+):
     pattern = _compile_pattern(
         search_text,
         case_sensitive=case_sensitive,
@@ -1458,10 +1534,13 @@ def search_content(
         max_depth=depth,
         include_files=True,
         include_directories=False,
-        include_hidden=False,
+        include_hidden=include_hidden,
         scan_cap=scan_cap,
     )
+    truncated = False
     for path in candidates:
+        if truncated:
+            break
         if not _glob_matches(path.name, search_pattern):
             continue
         if not _extension_is_allowed(workspace, path):
@@ -1472,21 +1551,27 @@ def search_content(
         if text is None:
             continue
         relative = str(path.relative_to(workspace.root))
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            for found in pattern.finditer(line):
-                matches.append(
-                    ContentMatch(
-                        relativePath=relative,
-                        lineNumber=line_number,
-                        columnNumber=found.start() + 1,
-                        matchedText=found.group(0)[:_MAXIMUM_MATCH_TEXT_CHARACTERS],
-                        lineText=line[:_MAXIMUM_MATCH_TEXT_CHARACTERS],
-                    )
+        # The whole file is searched, not each line in isolation, so a
+        # multi-line search text behaves exactly as it does in REPLACE_TEXT.
+        offsets = _line_start_offsets(text)
+        for found in pattern.finditer(text):
+            line_number, column_number = _locate_offset(offsets, found.start())
+            matches.append(
+                ContentMatch(
+                    relativePath=relative,
+                    lineNumber=line_number,
+                    columnNumber=column_number,
+                    matchedText=found.group(0)[:_MAXIMUM_MATCH_TEXT_CHARACTERS],
+                    lineText=_line_text(text, offsets, line_number)[
+                        :_MAXIMUM_MATCH_TEXT_CHARACTERS
+                    ],
                 )
-                if len(matches) >= result_cap:
-                    return (
-                        matches[skip : skip + page_limit],
-                        len(matches),
-                    )
+            )
+            if len(matches) >= result_cap:
+                truncated = True
+                break
     total = len(matches)
-    return matches[skip : skip + page_limit], total
+    page = matches[skip : skip + page_limit]
+    if return_truncated:
+        return page, total, truncated
+    return page, total
