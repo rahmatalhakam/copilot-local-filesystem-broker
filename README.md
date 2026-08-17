@@ -3,7 +3,8 @@
 A Windows-focused proof-of-concept service that lets a Microsoft Copilot agent
 perform controlled filesystem operations inside configured local workspaces.
 It exposes one synchronous FastAPI endpoint for a Power Platform custom
-connector and an optional, tightly restricted read-only PowerShell mode.
+connector, a Streamable HTTP MCP endpoint for Copilot Studio, and an optional,
+tightly restricted read-only PowerShell mode.
 
 > [!WARNING]
 > This MVP intentionally has no API authentication. Bind it to loopback or an
@@ -24,6 +25,8 @@ connector and an optional, tightly restricted read-only PowerShell mode.
 - Run one of five configured read-only PowerShell commands with validated,
   explicit arguments
 - Write a sanitized JSON Lines audit record for each accepted API request
+- Expose the same operation contract as one MCP tool named
+  `execute_workspace_file_operation`
 
 The service never accepts arbitrary PowerShell script text, absolute filesystem
 paths, command chaining, nested shells, or direct permanent deletion.
@@ -75,6 +78,12 @@ Check health:
 
 ```powershell
 Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/health"
+```
+
+The MCP Streamable HTTP endpoint is mounted at:
+
+```text
+http://127.0.0.1:8000/mcp
 ```
 
 ## Call the API
@@ -144,6 +153,31 @@ roots must be distinct and must not overlap another configured workspace.
 For `EXECUTE_COMMAND`, when `timeoutSeconds` is omitted, the configured
 `server.default_timeout_seconds` value is used. An explicit request value is
 preserved within the declared 1-to-60-second range.
+
+The optional top-level `mcp` section controls the MCP transport. If omitted,
+the broker enables MCP at `/mcp` with local development host protection and no
+browser origins:
+
+```yaml
+mcp:
+  enabled: true
+  endpoint_path: "/mcp"
+  allowed_hosts:
+    - "127.0.0.1"
+    - "127.0.0.1:*"
+    - "0.0.0.0"
+    - "0.0.0.0:*"
+    - "localhost"
+    - "localhost:*"
+    - "[::1]"
+    - "[::1]:*"
+    - "[::]"
+    - "[::]:*"
+  allowed_origins: []
+```
+
+Keep `allowed_hosts` narrow. Add deployed host names only when the broker is
+served through a controlled gateway or reverse proxy.
 
 ## Filesystem safety model
 
@@ -221,6 +255,29 @@ PowerShell command with separate arguments. All paths are relative to the
 selected workspace. Never submit an absolute path or arbitrary script.
 ```
 
+## Copilot Studio MCP
+
+The MCP endpoint uses the official Python MCP SDK v2 Streamable HTTP transport
+and is separate from the existing REST action. The existing
+`/api/v1/filesystem/execute` endpoint and `swagger/api-definition.swagger.yaml`
+remain available for the original Power Platform custom connector flow.
+
+For Copilot Studio MCP onboarding:
+
+1. Start the broker and verify `/health`.
+2. Make the `/mcp` endpoint reachable from Copilot Studio through the approved
+   network path.
+3. Use `swagger/mcp-streamable.swagger.yaml` if creating a custom MCP connector,
+   or enter the MCP server URL directly when using the MCP onboarding wizard.
+4. Confirm Copilot Studio lists one tool:
+   `execute_workspace_file_operation`.
+5. Test a low-risk read operation first, such as `EXISTS` or `READ_FILE`.
+
+The v1 MCP surface intentionally exposes one wrapper tool that accepts the same
+fixed `FileOperationRequest` shape as the REST endpoint and returns the same
+`FileOperationResponse` shape. This avoids drift between REST, Swagger, and MCP
+contracts while proving the Copilot Studio integration.
+
 ## Development commands
 
 ```powershell
@@ -256,6 +313,7 @@ logs/       Local audit-log placeholder; generated records are ignored
 - Conservative regular-expression support with no hard engine-level timeout
 - No transaction spanning multiple API requests
 - No automatic Swagger generation from the Pydantic models
+- No per-operation friendly MCP tools yet; MCP v1 exposes one wrapper tool
 - Interactive FastAPI documentation and its undeclared OpenAPI route are
   disabled; the reviewed Swagger 2.0 file is the connector contract
 - Reparse-point checks cannot eliminate every filesystem time-of-check/time-of-use

@@ -71,6 +71,44 @@ def test_swagger_defines_exactly_one_connector_operation() -> None:
     assert document.get('securityDefinitions') is None
 
 
+def test_mcp_swagger_declares_streamable_endpoint_for_copilot_studio() -> None:
+    path = Path('swagger/mcp-streamable.swagger.yaml')
+    document = yaml.safe_load(path.read_text(encoding='utf-8'))
+
+    assert document['swagger'] == '2.0'
+    assert document['basePath'] == '/'
+    assert set(document['paths']) == {'/mcp'}
+    operation = document['paths']['/mcp']['post']
+    assert operation['operationId'] == 'InvokeMCP'
+    assert operation['x-ms-agentic-protocol'] == 'mcp-streamable-1.0'
+    assert operation['parameters'] == [
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {'$ref': '#/definitions/McpJsonRpcRequest'},
+        }
+    ]
+    assert set(operation['responses']) == {'200'}
+    assert operation['responses']['200']['schema'] == {
+        '$ref': '#/definitions/McpJsonRpcResponse'
+    }
+    assert set(document['definitions']) == {
+        'ContentMatch',
+        'ExecuteWorkspaceFileOperationToolInput',
+        'FileOperationRequest',
+        'FileOperationResponse',
+        'FileSystemItem',
+        'McpContent',
+        'McpJsonRpcError',
+        'McpJsonRpcRequest',
+        'McpJsonRpcResponse',
+        'McpJsonRpcResult',
+        'McpTool',
+        'McpToolCallParams',
+    }
+
+
 def test_swagger_request_properties_exactly_match_pydantic() -> None:
     request = load_swagger()['definitions']['FileOperationRequest']
 

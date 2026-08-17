@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-import app.main as main_module
+import app.operation_service as operation_service
 from app.config import AppConfig
 from app.errors import PolicyViolation
 from app.main import create_app
@@ -108,7 +108,11 @@ def test_audit_write_failure_does_not_mask_operation_response(
     ) -> None:
         raise OSError("audit volume unavailable")
 
-    monkeypatch.setattr(main_module, "append_audit_record", fail_audit_write)
+    monkeypatch.setattr(
+        operation_service,
+        "append_audit_record",
+        fail_audit_write,
+    )
     client = _client(app_config)
 
     response = client.post(
@@ -137,7 +141,7 @@ def test_unexpected_exception_returns_generic_500_without_internal_details(
         r"PRIVATE_INTERNAL_TOKEN at C:\broker\filesystem.py:417"
     )
     monkeypatch.setattr(
-        main_module,
+        operation_service,
         "dispatch",
         _raising_dispatch(RuntimeError(internal_detail)),
     )
@@ -260,7 +264,7 @@ def test_domain_errors_map_to_fixed_http_error_contract(
     expected_policy_allowed: bool,
 ) -> None:
     monkeypatch.setattr(
-        main_module,
+        operation_service,
         "dispatch",
         _raising_dispatch(error),
     )
@@ -305,7 +309,7 @@ def test_success_and_error_responses_have_no_store_security_headers(
     success = client.get("/health")
 
     monkeypatch.setattr(
-        main_module,
+        operation_service,
         "dispatch",
         _raising_dispatch(TimeoutError()),
     )
@@ -358,7 +362,7 @@ def test_each_accepted_request_writes_one_sanitized_audit_event(
         )
 
     monkeypatch.setattr(
-        main_module,
+        operation_service,
         "dispatch",
         dispatch_with_sensitive_results,
     )

@@ -174,3 +174,308 @@ workspaces:
       maximum_arguments: 20
       allow_environment_variables: false
       allow_wildcards: false
+
+  cab_doc_generator:
+    root: 'D:\Users\bsi91071\Documents\berkas all\cab-doc-generator'
+    recycle_root: 'D:\Users\bsi91071\Documents\berkas all\.recycle\cab-doc-generator'
+
+    permissions:
+      read: true
+      create: true
+      update: true
+      delete: true
+      move: true
+      copy: true
+      search: true
+      execute_command: true
+
+    policy:
+      allowed_extensions:
+        - ".20150526"
+        - ".7z"
+        - ".addeventcode7dfu"
+        - ".afp"
+        - ".asax"
+        - ".ascx"
+        - ".asp"
+        - ".aspx"
+        - ".bak"
+        - ".bat"
+        - ".bmp"
+        - ".cfc"
+        - ".cfm"
+        - ".cmd"
+        - ".config"
+        - ".cs"
+        - ".cshtml"
+        - ".csproj"
+        - ".css"
+        - ".csv"
+        - ".db"
+        - ".dll"
+        - ".docx"
+        - ".eot"
+        - ".exe"
+        - ".fxcop"
+        - ".gif"
+        - ".htc"
+        - ".htm"
+        - ".html"
+        - ".http"
+        - ".ico"
+        - ".installlog"
+        - ".jpg"
+        - ".js"
+        - ".json"
+        - ".key"
+        - ".lasso"
+        - ".log4net"
+        - ".map"
+        - ".master"
+        - ".md"
+        - ".myapp"
+        - ".old"
+        - ".otf"
+        - ".pdf"
+        - ".php"
+        - ".pl"
+        - ".png"
+        - ".pubxml"
+        - ".py"
+        - ".qa"
+        - ".r1245"
+        - ".r252"
+        - ".regnumber"
+        - ".resx"
+        - ".sapwsdl"
+        - ".scss"
+        - ".settings"
+        - ".sln"
+        - ".sql"
+        - ".sqlproj"
+        - ".strings"
+        - ".svg"
+        - ".table"
+        - ".ttf"
+        - ".txt"
+        - ".vb"
+        - ".vbhtml"
+        - ".vbproj"
+        - ".vdproj"
+        - ".wav"
+        - ".webmanifest"
+        - ".woff"
+        - ".woff2"
+        - ".xls"
+        - ".xlsx"
+        - ".xml"
+        - ".xsc"
+        - ".xsd"
+        - ".xslt"
+        - ".xss"
+        - ".xsx"
+        - ".yml"
+        - ".sh"
+      maximum_file_size_bytes: 5242880
+      maximum_write_characters: 1000000
+      maximum_search_results: 500
+      maximum_search_depth: 20
+      allow_hidden_items: false
+      allow_reparse_points: false
+      allow_workspace_root_operation: false
+
+    command_policy:
+      allowed_commands:
+        - "Get-ChildItem"
+        - "Get-Content"
+        - "Test-Path"
+        - "Get-Item"
+        - "Select-String"
+      maximum_arguments: 20
+      allow_environment_variables: false
+      allow_wildcards: false
+
+  copilot_localfilesystem_broker:
+    root: 'D:\Users\bsi91071\repos\copilot_local_filesystem_broker'
+    recycle_root: 'D:\Users\bsi91071\repos\.recycle\copilot_local_filesystem_broker'
+
+    permissions:
+      read: true
+      create: true
+      update: true
+      delete: true
+      move: true
+      copy: true
+      search: true
+      execute_command: true
+
+    policy:
+      allowed_extensions:
+        - ".py"
+        - ".yaml"
+        - ".gitkeep"
+        - ".example"
+        - ".gitignore"
+        - ".toml"
+      maximum_file_size_bytes: 5242880
+      maximum_write_characters: 1000000
+      maximum_search_results: 500
+      maximum_search_depth: 20
+      allow_hidden_items: false
+      allow_reparse_points: false
+      allow_workspace_root_operation: false
+
+    command_policy:
+      allowed_commands:
+        - "Get-ChildItem"
+        - "Get-Content"
+        - "Test-Path"
+        - "Get-Item"
+        - "Select-String"
+      maximum_arguments: 20
+      allow_environment_variables: false
+      allow_wildcards: false
+
+  ojk_sipbu:
+    root: 'D:\Users\bsi91071\repos\ojk-sipbu'
+    recycle_root: 'D:\Users\bsi91071\repos\.recycle\ojk-sipbu'
+
+    permissions:
+      read: true
+      create: true
+      update: true
+      delete: true
+      move: true
+      copy: true
+      search: true
+      execute_command: true
+
+    policy:
+      allowed_extensions:
+        - '.asax'
+        - '.ascx'
+        - '.aspx'
+        - '.bak'
+        - '.bak14122025'
+        - '.bak20251210'
+        - '.bak20251216'
+        - '.bcmap'
+        - '.bin'
+        - '.cache'
+        - '.chm'
+        - '.compiled'
+        - '.config'
+        - '.CopyComplete'
+        - '.cs'
+        - '.csbak'
+        - '.csdl'
+        - '.cshtml'
+        - '.cshtmlbak'
+        - '.csproj'
+        - '.css'
+        - '.csv'
+        - '.cur'
+        - '.data'
+        - '.datasource'
+        - '.ddl'
+        - '.diagram'
+        - '.disco'
+        - '.dll'
+        - '.docx'
+        - '.DS_Store'
+        - '.edmx'
+        - '.eot'
+        - '.example'
+        - '.exe'
+        - '.force'
+        - '.gif'
+        - '.gitignore'
+        - '.htm'
+        - '.html'
+        - '.ico'
+        - '.jpg'
+        - '.js'
+        - '.json'
+        - '.less'
+        - '.lic'
+        - '.localdev'
+        - '.map'
+        - '.Master'
+        - '.md'
+        - '.msl'
+        - '.nupkg'
+        - '.nuspec'
+        - '.obj'
+        - '.old'
+        - '.orig'
+        - '.otf'
+        - '.p7s'
+        - '.pdb'
+        - '.pdf'
+        - '.png'
+        - '.properties'
+        - '.props'
+        - '.ps1'
+        - '.psd1'
+        - '.psm1'
+        - '.psmdcp'
+        - '.pubxml'
+        - '.py'
+        - '.pyc'
+        - '.rdl'
+        - '.rdlc'
+        - '.rdlc_bak'
+        - '.rdlc21082025'
+        - '.rdlcbak'
+        - '.rdlcbak20082025'
+        - '.rels'
+        - '.rptproj'
+        - '.rsuser'
+        - '.rtf'
+        - '.scss'
+        - '.sh'
+        - '.sln'
+        - '.sql'
+        - '.sqlite'
+        - '.ssdl'
+        - '.suo'
+        - '.svcinfo'
+        - '.svcmap'
+        - '.svg'
+        - '.targets'
+        - '.transform'
+        - '.tt'
+        - '.ttf'
+        - '.txt'
+        - '.Up2Date'
+        - '.user'
+        - '.vsidx'
+        - '.woff'
+        - '.woff2'
+        - '.wsdl'
+        - '.xdt'
+        - '.xlsm'
+        - '.xlsx'
+        - '.xml'
+        - '.xsc'
+        - '.xsd'
+        - '.xss'
+        - '.yml'
+      maximum_file_size_bytes: 5242880
+      maximum_write_characters: 1000000
+      maximum_search_results: 500
+      maximum_search_depth: 20
+      allow_hidden_items: false
+      allow_reparse_points: false
+      allow_workspace_root_operation: false
+
+    command_policy:
+      allowed_commands:
+        - "Get-ChildItem"
+        - "Get-Content"
+        - "Test-Path"
+        - "Get-Item"
+        - "Select-String"
+      maximum_arguments: 20
+      allow_environment_variables: false
+      allow_wildcards: false
