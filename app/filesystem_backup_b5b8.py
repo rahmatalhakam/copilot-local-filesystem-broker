@@ -122,12 +122,7 @@ def make_item(
         itemType=kind,
         extension=path.suffix or None,
         sizeBytes=stats.st_size if is_file else None,
-        # On Windows st_ctime is deprecated since Python 3.12 and will change
-        # meaning; st_birthtime is the stable creation time. POSIX systems
-        # without st_birthtime keep the st_ctime fallback (change time).
-        createdUtc=utc_from_timestamp(
-            getattr(stats, 'st_birthtime', None) or stats.st_ctime
-        ),
+        createdUtc=utc_from_timestamp(stats.st_ctime),
         modifiedUtc=utc_from_timestamp(stats.st_mtime),
         isHidden=is_hidden(path),
         isReadOnly=readonly_attribute or not os.access(path, os.W_OK),
@@ -1337,25 +1332,37 @@ def _iter_search_candidates(
         if is_reparse_point(current):
             raise _violation('REPARSE_POINT_DENIED', 'A search directory changed.', 'deny-reparse-point')
         for discovered in entries:
-            # `current` was fully resolved and re-verified above, so each
-            # child needs only its own policy checks: reparse points are
-            # never listed or traversed, and hidden items honour the policy.
-            # This avoids re-resolving every entry from the workspace root,
-            # which cost O(depth^2) stat calls on deep trees, and it means a
-            # single symlink/junction inside the tree is skipped instead of
-            # aborting the whole search. A vanished entry (delete race)
-            # fails both is_dir() and is_file() and is skipped implicitly.
             if is_hidden(discovered) and not show_hidden:
                 continue
-            if is_reparse_point(discovered):
+            try:
+                entry = resolve_workspace_path(
+                    workspace,
+                    str(discovered.relative_to(workspace.root)),
+                    must_exist=True,
+                )
+            except FileNotFoundError:
                 continue
-            if discovered.is_dir():
+            except PolicyViolation as violation:
+                # A reparse point or hidden entry inside the tree is skipped,
+                # not fatal: aborting the whole search here would let a single
+                # symlink/junction anywhere in the workspace break SEARCH_*.
+                if violation.code in (
+                    'REPARSE_POINT_DENIED',
+                    'HIDDEN_ITEM_DENIED',
+                ):
+                    continue
+                raise
+            if is_reparse_point(entry):
+                continue
+            if is_hidden(entry) and not show_hidden:
+                continue
+            if entry.is_dir():
                 if include_directories:
-                    yield discovered
+                    yield entry
                 if recursive and depth < max_depth:
-                    yield from visit(discovered, depth + 1)
-            elif discovered.is_file() and include_files:
-                yield discovered
+                    yield from visit(entry, depth + 1)
+            elif entry.is_file() and include_files:
+                yield entry
     yield from visit(root, 0)
 
 
@@ -1451,18 +1458,13 @@ def search_files(
     # silently unreachable behind a hard cap.
     total = len(filtered)
     truncated = False
+    page = filtered[skip : skip + page_limit]
     items: list[FileSystemItem] = []
-    # A file can vanish between the walk and make_item (delete race). Such
-    # an entry is dropped from BOTH the page and the total, and the next
-    # surviving entry backfills the page, so a page never comes back short
-    # while more results exist.
-    cursor = skip
-    while cursor < len(filtered) and len(items) < page_limit:
+    for path in page:
         try:
-            items.append(make_item(workspace, filtered[cursor]))
+            items.append(make_item(workspace, path))
         except FileNotFoundError:
-            total -= 1
-        cursor += 1
+            continue
     if return_truncated:
         return items, total, truncated
     return items, total

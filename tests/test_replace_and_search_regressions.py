@@ -218,7 +218,7 @@ def test_search_content_without_truncation_flag_is_backwards_compatible(
     assert len(result) == 2
 
 
-def test_search_files_reports_truncation(workspace: Workspace) -> None:
+def test_search_files_pages_past_the_result_cap(workspace: Workspace) -> None:
     workspace.policy["maximum_search_results"] = 2
     for index in range(5):
         _write(workspace, f"file{index}.txt", "alpha")
@@ -238,9 +238,30 @@ def test_search_files_reports_truncation(workspace: Workspace) -> None:
         return_truncated=True,
     )
 
-    assert truncated is True
-    assert total == 2
+    # B4: the workspace cap bounds each page, never the reachable result
+    # set — name searches report the true total and stay fully pageable.
+    assert truncated is False
+    assert total == 5
     assert len(items) == 2
+
+    tail, tail_total, tail_truncated = search_files(
+        workspace,
+        ".",
+        recursive=True,
+        max_depth=5,
+        search_pattern=None,
+        name_pattern=None,
+        extension=None,
+        include_files=True,
+        include_directories=False,
+        max_results=10,
+        skip=2,
+        return_truncated=True,
+    )
+
+    assert tail_truncated is False
+    assert tail_total == 5
+    assert [item.name for item in tail] == ["file2.txt", "file3.txt"]
 
 
 def test_utf16_files_are_searchable(workspace: Workspace) -> None:

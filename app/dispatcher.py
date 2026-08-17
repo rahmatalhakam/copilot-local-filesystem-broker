@@ -310,7 +310,7 @@ def _pagination_values(
         "totalResults": total,
         "returnedResults": returned,
         "hasMore": has_more or truncated,
-        "nextSkip": skip + returned if has_more else None,
+        "nextSkip": skip + returned if (has_more or truncated) else None,
     }
 
 
@@ -632,6 +632,8 @@ def dispatch(
             exists=True,
             itemType=item.itemType,
             affectedCount=1,
+            totalResults=1,
+            returnedResults=1,
             **_metadata_values(item, include=request.returnMetadata),
         )
 
@@ -642,6 +644,8 @@ def dispatch(
             exists=exists,
             itemType=target_type,
             affectedCount=1 if exists else 0,
+            totalResults=1 if exists else 0,
+            returnedResults=1 if exists else 0,
         )
 
     command = request.shellCommand
