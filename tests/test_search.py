@@ -148,8 +148,16 @@ def test_name_search_enforces_workspace_result_cap(workspace: Workspace):
 
     items, total = _search_files(capped, max_results=100)
 
-    assert total == 3
+    # B4: the cap bounds the page size, not the reachable result set — the
+    # true total is reported and skip can page past the cap.
+    assert total == 6
     assert len(items) == 3
+    assert [item.name for item in items] == ["0.txt", "1.txt", "2.txt"]
+
+    tail, tail_total = _search_files(capped, max_results=100, skip=3)
+
+    assert tail_total == 6
+    assert [item.name for item in tail] == ["3.txt", "4.txt", "5.txt"]
 
 
 def test_search_excludes_hidden_items_unless_both_request_and_policy_allow(
@@ -319,7 +327,7 @@ def test_content_search_bounds_literal_search_text(workspace: Workspace):
     _write(workspace.root, 'content.txt', 'safe')
 
     with pytest.raises(PolicyViolation) as caught:
-        _search_content(workspace, 'a' * 201, use_regex=False)
+        _search_content(workspace, 'a' * 10001, use_regex=False)
 
     assert caught.value.code == 'SEARCH_TEXT_LIMIT_EXCEEDED'
 
@@ -370,11 +378,27 @@ def test_content_search_paginates_deterministically_and_honors_cap(
         skip=1,
     )
 
-    assert total == 4
+    # B4: counting proceeds to skip + cap (1 + 4 = 5) so pagination can
+    # always advance past a previously reported cap; the window itself is
+    # still deterministic and bounded by max_results.
+    assert total == 5
     assert [
         (match.relativePath, match.columnNumber)
         for match in matches
     ] == [("a.txt", 5), ("b.txt", 1)]
+
+    tail, tail_total = _search_content(
+        capped,
+        "hit",
+        max_results=2,
+        skip=4,
+    )
+
+    assert tail_total == 6
+    assert [
+        (match.relativePath, match.columnNumber)
+        for match in tail
+    ] == [("c.txt", 1), ("c.txt", 5)]
 
 
 def test_content_search_honors_name_pattern_and_extension(
@@ -393,3 +417,45 @@ def test_content_search_honors_name_pattern_and_extension(
 
     assert total == 1
     assert [match.relativePath for match in matches] == ["include.txt"]
+
+def test_long_literal_search_text_is_matched(workspace: Workspace):
+    needle = "n" * 500
+    _write(workspace.root, "long.txt", f"prefix {needle} suffix")
+
+    matches, total = _search_content(workspace, needle)
+
+    assert total == 1
+    assert matches[0].columnNumber == 8
+
+
+def test_regex_search_text_keeps_the_tight_bound(workspace: Workspace):
+    _write(workspace.root, "content.txt", "safe")
+
+    with pytest.raises(PolicyViolation) as caught:
+        _search_content(workspace, "a" * 201, use_regex=True)
+
+    assert caught.value.code == "SEARCH_TEXT_LIMIT_EXCEEDED"
+
+
+def test_content_search_accepts_a_single_file_path(workspace: Workspace):
+    _write(workspace.root, "one.txt", "needle here")
+    _write(workspace.root, "two.txt", "needle there")
+
+    matches, total = search_content(
+        workspace,
+        "one.txt",
+        "needle",
+        recursive=False,
+        max_depth=0,
+        search_pattern=None,
+        extension=None,
+        case_sensitive=False,
+        use_regex=False,
+        whole_word=False,
+        max_results=10,
+        skip=0,
+    )
+
+    assert total == 1
+    assert [match.relativePath for match in matches] == ["one.txt"]
+

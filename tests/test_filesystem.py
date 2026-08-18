@@ -162,7 +162,7 @@ def test_read_and_append_reject_oversized_existing_file(
 
 
 @pytest.mark.parametrize('operation', ['update', 'append'])
-def test_mutating_writes_revalidate_immediately_before_staging(
+def test_mutating_writes_revalidate_immediately_before_commit(
     workspace: Workspace,
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
@@ -170,16 +170,24 @@ def test_mutating_writes_revalidate_immediately_before_staging(
     target = workspace.root / 'versioned.txt'
     target.write_text('before', encoding='utf-8')
     resolve_calls: list[str | None] = []
+    staged_after: list[int] = []
     real_resolve = filesystem_module.resolve_workspace_path
     real_temporary_write = filesystem_module._write_temporary_file
+    real_replace = filesystem_module.os.replace
 
     def tracked_resolve(*args, **kwargs):
         resolve_calls.append(args[1])
         return real_resolve(*args, **kwargs)
 
-    def guarded_temporary_write(path: Path, data: bytes) -> Path:
-        assert len(resolve_calls) >= 3
+    def tracked_temporary_write(path: Path, data: bytes) -> Path:
+        staged_after.append(len(resolve_calls))
         return real_temporary_write(path, data)
+
+    def guarded_replace(source_path, destination_path):
+        # The path must be re-resolved (and the version re-verified)
+        # after staging, immediately before the commit itself.
+        assert staged_after and len(resolve_calls) > staged_after[-1]
+        return real_replace(source_path, destination_path)
 
     monkeypatch.setattr(
         filesystem_module,
@@ -189,8 +197,9 @@ def test_mutating_writes_revalidate_immediately_before_staging(
     monkeypatch.setattr(
         filesystem_module,
         '_write_temporary_file',
-        guarded_temporary_write,
+        tracked_temporary_write,
     )
+    monkeypatch.setattr(filesystem_module.os, 'replace', guarded_replace)
 
     if operation == 'update':
         update_file(workspace, 'versioned.txt', 'after', 'utf-8')
@@ -715,7 +724,93 @@ def test_append_with_and_without_newline_and_without_duplicate_bom(
 
     raw = target.read_bytes()
     assert raw.count(b"\xef\xbb\xbf") == 1
-    assert raw.decode("utf-8-sig") == "first second third\r\n"
+    # A separator keeps the appended text off the unterminated last line,
+    # and the file's own line ending (LF here) is inherited.
+    assert raw.decode("utf-8-sig") == "first second\n third\n"
+
+
+def test_append_preserves_existing_line_endings(workspace: Workspace):
+    create_file(
+        workspace,
+        "crlf.txt",
+        "a\r\nb",
+        "utf-8",
+        overwrite=False,
+        create_parents=False,
+    )
+    append_file(
+        workspace,
+        "crlf.txt",
+        "c\nd",
+        "utf-8",
+        append_newline=True,
+    )
+    assert (workspace.root / "crlf.txt").read_bytes() == b"a\r\nb\r\nc\r\nd\r\n"
+
+    create_file(
+        workspace,
+        "lf.txt",
+        "a\nb\n",
+        "utf-8",
+        overwrite=False,
+        create_parents=False,
+    )
+    append_file(
+        workspace,
+        "lf.txt",
+        "c",
+        "utf-8",
+        append_newline=True,
+    )
+    assert (workspace.root / "lf.txt").read_bytes() == b"a\nb\nc\n"
+
+
+def test_append_character_limit_counts_only_the_appended_text(
+    workspace: Workspace,
+):
+    tight = replace(
+        workspace,
+        policy={**workspace.policy, "maximum_write_characters": 10},
+    )
+    create_file(
+        tight,
+        "large.txt",
+        "0123456789",
+        "utf-8",
+        overwrite=False,
+        create_parents=False,
+    )
+
+    append_file(
+        tight,
+        "large.txt",
+        "abc",
+        "utf-8",
+        append_newline=True,
+    )
+
+    assert (tight.root / "large.txt").read_bytes() == b"0123456789\nabc\n"
+
+
+def test_append_base64_is_binary_safe_and_ignores_newline_flag(
+    workspace: Workspace,
+):
+    create_file(
+        workspace,
+        "binary.bin",
+        base64.b64encode(b"\x00\x01").decode("ascii"),
+        "base64",
+        overwrite=False,
+        create_parents=False,
+    )
+    append_file(
+        workspace,
+        "binary.bin",
+        base64.b64encode(b"\x02\x03").decode("ascii"),
+        "base64",
+        append_newline=True,
+    )
+    assert (workspace.root / "binary.bin").read_bytes() == b"\x00\x01\x02\x03"
 
 
 def test_replace_text_is_case_aware_and_checks_expected_count(

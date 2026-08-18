@@ -27,6 +27,7 @@ REQUEST_NULLABLE_SCALARS = {
     'namePattern',
     'expectedHash',
     'expectedLastModifiedUtc',
+    'expectedOccurrences',
     'shellCommand',
     'reason',
     'correlationId',
@@ -71,6 +72,44 @@ def test_swagger_defines_exactly_one_connector_operation() -> None:
     assert document.get('securityDefinitions') is None
 
 
+def test_mcp_swagger_declares_streamable_endpoint_for_copilot_studio() -> None:
+    path = Path('swagger/mcp-streamable.swagger.yaml')
+    document = yaml.safe_load(path.read_text(encoding='utf-8'))
+
+    assert document['swagger'] == '2.0'
+    assert document['basePath'] == '/'
+    assert set(document['paths']) == {'/mcp'}
+    operation = document['paths']['/mcp']['post']
+    assert operation['operationId'] == 'InvokeMCP'
+    assert operation['x-ms-agentic-protocol'] == 'mcp-streamable-1.0'
+    assert operation['parameters'] == [
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {'$ref': '#/definitions/McpJsonRpcRequest'},
+        }
+    ]
+    assert set(operation['responses']) == {'200'}
+    assert operation['responses']['200']['schema'] == {
+        '$ref': '#/definitions/McpJsonRpcResponse'
+    }
+    assert set(document['definitions']) == {
+        'ContentMatch',
+        'ExecuteWorkspaceFileOperationToolInput',
+        'FileOperationRequest',
+        'FileOperationResponse',
+        'FileSystemItem',
+        'McpContent',
+        'McpJsonRpcError',
+        'McpJsonRpcRequest',
+        'McpJsonRpcResponse',
+        'McpJsonRpcResult',
+        'McpTool',
+        'McpToolCallParams',
+    }
+
+
 def test_swagger_request_properties_exactly_match_pydantic() -> None:
     request = load_swagger()['definitions']['FileOperationRequest']
 
@@ -89,7 +128,7 @@ def test_request_bounds_and_hash_pattern_match_runtime_validation() -> None:
     ]
 
     assert properties['content']['maxLength'] == 1000000
-    assert properties['searchText']['maxLength'] == 200
+    assert properties['searchText']['maxLength'] == 10000
     assert properties['replacementText']['maxLength'] == 1000000
     assert properties['shellArguments']['items']['maxLength'] == 1000
     assert properties['expectedHash']['minLength'] == 71
@@ -197,3 +236,23 @@ def test_swagger_declares_stable_response_for_every_status() -> None:
         assert response['schema'] == {
             '$ref': '#/definitions/FileOperationResponse'
         }
+
+
+def test_request_defaults_stay_in_sync_with_pydantic() -> None:
+    for swagger_path in (
+        Path('swagger/api-definition.swagger.yaml'),
+        Path('swagger/mcp-streamable.swagger.yaml'),
+    ):
+        document = yaml.safe_load(swagger_path.read_text(encoding='utf-8'))
+        properties = document['definitions']['FileOperationRequest'][
+            'properties'
+        ]
+        for name, field in FileOperationRequest.model_fields.items():
+            if not isinstance(field.default, bool):
+                continue
+            declared = properties[name].get('default')
+            assert declared == field.default, f'{swagger_path}: {name}'
+        # expectedOccurrences must never regain a schema default: absent
+        # means "assert exactly one match unless replaceAll", and a
+        # declared default would make generated clients send it always.
+        assert 'default' not in properties['expectedOccurrences'], swagger_path

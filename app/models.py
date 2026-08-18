@@ -66,11 +66,11 @@ class FileOperationRequest(BaseModel):
     force: bool = False
 
     searchPattern: str | None = Field(default=None, max_length=200)
-    searchText: str | None = Field(default=None, max_length=200)
+    searchText: str | None = Field(default=None, max_length=10000)
     replacementText: str | None = Field(default=None, max_length=1000000)
-    expectedOccurrences: int = Field(default=1, ge=0, le=10000)
+    expectedOccurrences: int | None = Field(default=None, ge=1, le=10000)
     replaceAll: bool = False
-    caseSensitive: bool = False
+    caseSensitive: bool = True
     useRegex: bool = False
     wholeWord: bool = False
 

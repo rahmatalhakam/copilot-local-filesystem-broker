@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from app.config import ConfigurationError, load_config
+from app.config import ConfigurationError, McpConfig, load_config
 from app.models import (
     FileOperationRequest,
     FileOperationResponse,
@@ -153,6 +153,92 @@ def test_load_config_builds_isolated_workspace(
     assert workspace.recycle_root == (tmp_path / "recycle").resolve()
     assert workspace.policy["allowed_extensions"] == [".txt", ".md", ".json"]
     assert workspace.command_policy["maximum_arguments"] == 20
+    assert config.mcp == McpConfig()
+
+
+def test_default_mcp_allowed_hosts_cover_local_bind_forms() -> None:
+    assert McpConfig().allowed_hosts == [
+        "127.0.0.1",
+        "127.0.0.1:*",
+        "0.0.0.0",
+        "0.0.0.0:*",
+        "localhost",
+        "localhost:*",
+        "[::1]",
+        "[::1]:*",
+        "[::]",
+        "[::]:*",
+    ]
+
+
+def test_load_config_accepts_mcp_settings(
+    config_path: Path,
+    valid_config_data: dict[str, object],
+) -> None:
+    valid_config_data["mcp"] = {
+        "enabled": False,
+        "endpoint_path": "/agent/mcp",
+        "allowed_hosts": [
+            "broker.example.test",
+            "broker.example.test:*",
+            "[::1]",
+            "[::1]:*",
+        ],
+        "allowed_origins": [
+            "https://copilotstudio.microsoft.com",
+            "http://[::1]:*",
+        ],
+    }
+    config_path.write_text(
+        yaml.safe_dump(valid_config_data, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.mcp.enabled is False
+    assert config.mcp.endpoint_path == "/agent/mcp"
+    assert config.mcp.allowed_hosts == [
+        "broker.example.test",
+        "broker.example.test:*",
+        "[::1]",
+        "[::1]:*",
+    ]
+    assert config.mcp.allowed_origins == [
+        "https://copilotstudio.microsoft.com",
+        "http://[::1]:*",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("endpoint_path", "mcp", r"endpoint_path.*start with '/'"),
+        ("endpoint_path", "/", r"endpoint_path.*must not be '/'"),
+        ("allowed_hosts", [], r"allowed_hosts.*at least one"),
+        ("allowed_hosts", ["broker/example"], r"allowed_hosts.*host"),
+        ("allowed_origins", ["not-a-url"], r"allowed_origins.*origin"),
+    ],
+)
+def test_config_rejects_invalid_mcp_settings(
+    tmp_path: Path,
+    valid_config_data: dict[str, object],
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    valid_config_data["mcp"] = {
+        "enabled": True,
+        "endpoint_path": "/mcp",
+        "allowed_hosts": ["127.0.0.1", "127.0.0.1:*"],
+        "allowed_origins": [],
+    }
+    valid_config_data["mcp"][field] = value
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(valid_config_data), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match=match):
+        load_config(path)
 
 
 def test_load_config_uses_environment_path_when_not_explicit(

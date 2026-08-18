@@ -187,13 +187,36 @@ def validate_operation_request(request: FileOperationRequest) -> None:
         request,
         "caseSensitive",
         {Operation.REPLACE_TEXT, Operation.SEARCH_CONTENT},
-        active=request.caseSensitive,
+        # caseSensitive defaults to True and generated clients may echo the
+        # default on every operation, so only an explicit value that
+        # differs from the default counts as active.
+        active=(
+            "caseSensitive" in request.model_fields_set
+            and request.caseSensitive is False
+        ),
     )
     _reject_value_unless(
         request,
         "replaceAll",
         {Operation.REPLACE_TEXT},
         active=request.replaceAll,
+    )
+    _reject_value_unless(
+        request,
+        "expectedOccurrences",
+        {Operation.REPLACE_TEXT},
+        active=request.expectedOccurrences is not None,
+    )
+    _reject_value_unless(
+        request,
+        "appendNewLine",
+        {Operation.APPEND_FILE},
+        # appendNewLine defaults to True, so only an explicit opt-out on an
+        # inapplicable operation is meaningful.
+        active=(
+            "appendNewLine" in request.model_fields_set
+            and request.appendNewLine is False
+        ),
     )
     _reject_value_unless(
         request,
@@ -283,7 +306,7 @@ def _metadata_values(
 ) -> dict[str, Any]:
     if not include:
         # Hash selection is independent from the remaining metadata fields.
-        # make_item computes it only when returnHash was requested.
+        # Mutating operations always compute it; reads only on returnHash.
         return {'hash': item.hash} if item.hash is not None else {}
     return {
         "name": item.name,
@@ -300,14 +323,17 @@ def _pagination_values(
     returned: int,
     total: int,
     skip: int,
+    truncated: bool = False,
 ) -> dict[str, Any]:
+    # `truncated` marks a result set clipped by maximum_search_results: the
+    # caller must be told more matches exist even though they are not pageable.
     has_more = skip + returned < total
     return {
         "affectedCount": returned,
         "totalResults": total,
         "returnedResults": returned,
-        "hasMore": has_more,
-        "nextSkip": skip + returned if has_more else None,
+        "hasMore": has_more or truncated,
+        "nextSkip": skip + returned if (has_more or truncated) else None,
     }
 
 
@@ -350,7 +376,7 @@ def dispatch(
             overwrite=request.overwrite,
             create_parents=request.createParentDirectories,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "File created successfully.",
             exists=True,
@@ -434,7 +460,7 @@ def dispatch(
             expected_hash=request.expectedHash,
             expected_modified=request.expectedLastModifiedUtc,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "File updated successfully.",
             exists=True,
@@ -452,7 +478,7 @@ def dispatch(
             append_newline=request.appendNewLine,
             expected_hash=request.expectedHash,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "Content appended successfully.",
             exists=True,
@@ -475,7 +501,7 @@ def dispatch(
             replace_all=request.replaceAll,
             expected_hash=request.expectedHash,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             f"Replaced {replacements} occurrence(s).",
             exists=True,
@@ -522,7 +548,7 @@ def dispatch(
             overwrite=request.overwrite,
             create_parents=request.createParentDirectories,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "Item moved successfully.",
             exists=True,
@@ -540,7 +566,7 @@ def dispatch(
             recursive=request.recursive,
             create_parents=request.createParentDirectories,
         )
-        item = make_item(workspace, target, include_hash=request.returnHash)
+        item = make_item(workspace, target, include_hash=True)
         return response(
             "Item copied successfully.",
             exists=True,
@@ -550,7 +576,7 @@ def dispatch(
         )
 
     if operation == Operation.SEARCH_FILES:
-        items, total = search_files(
+        items, total, truncated = search_files(
             workspace,
             request.path,
             recursive=request.recursive,
@@ -563,19 +589,26 @@ def dispatch(
             include_hidden=request.includeHidden,
             max_results=request.maxResults,
             skip=request.skip,
+            return_truncated=True,
         )
         return response(
-            "File search completed.",
+            (
+                "File search completed; the result limit was reached."
+                if truncated
+                else "File search completed."
+            ),
+            status=Status.PARTIAL if truncated else Status.COMPLETED,
             items=items,
             **_pagination_values(
                 returned=len(items),
                 total=total,
                 skip=request.skip,
+                truncated=truncated,
             ),
         )
 
     if operation == Operation.SEARCH_CONTENT:
-        matches, total = search_content(
+        matches, total, truncated = search_content(
             workspace,
             request.path,
             request.searchText,
@@ -588,14 +621,22 @@ def dispatch(
             whole_word=request.wholeWord,
             max_results=request.maxResults,
             skip=request.skip,
+            include_hidden=request.includeHidden,
+            return_truncated=True,
         )
         return response(
-            "Content search completed.",
+            (
+                "Content search completed; the result limit was reached."
+                if truncated
+                else "Content search completed."
+            ),
+            status=Status.PARTIAL if truncated else Status.COMPLETED,
             matches=matches,
             **_pagination_values(
                 returned=len(matches),
                 total=total,
                 skip=request.skip,
+                truncated=truncated,
             ),
         )
 
@@ -610,6 +651,8 @@ def dispatch(
             exists=True,
             itemType=item.itemType,
             affectedCount=1,
+            totalResults=1,
+            returnedResults=1,
             **_metadata_values(item, include=request.returnMetadata),
         )
 
@@ -620,6 +663,8 @@ def dispatch(
             exists=exists,
             itemType=target_type,
             affectedCount=1 if exists else 0,
+            totalResults=1 if exists else 0,
+            returnedResults=1 if exists else 0,
         )
 
     command = request.shellCommand

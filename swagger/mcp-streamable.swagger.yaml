@@ -1,64 +1,165 @@
 swagger: '2.0'
 
 info:
-  title: Copilot Local Filesystem Broker
+  title: Copilot Local Filesystem Broker MCP
   version: '1.0.0'
   description: >
-    Executes approved filesystem operations and restricted read-only
-    PowerShell commands inside configured local Windows workspaces.
+    Streamable HTTP MCP endpoint for controlled local workspace filesystem
+    operations. The MCP server exposes one tool named
+    execute_workspace_file_operation; that tool accepts the same fixed
+    FileOperationRequest contract as the REST connector and returns the same
+    FileOperationResponse contract in structuredContent.
 
 host: localhost:8000
-basePath: /api/v1
+basePath: /
 schemes: [http]
 consumes: [application/json]
-produces: [application/json]
+produces: [application/json, text/event-stream]
 
 paths:
-  /filesystem/execute:
+  /mcp:
     post:
-      operationId: ExecuteWorkspaceFileOperation
-      summary: Execute a workspace filesystem operation
+      operationId: InvokeMCP
+      summary: Copilot Local Filesystem Broker MCP server
       description: >
-        Executes one structured filesystem operation or one explicitly
-        allowlisted read-only PowerShell command. Paths must be relative to a
-        configured workspace. Arbitrary script text is never accepted.
-      x-ms-visibility: important
+        Invokes the Streamable HTTP Model Context Protocol endpoint. Clients
+        send JSON-RPC MCP messages to initialize the session, list tools, and
+        call execute_workspace_file_operation. Filesystem policy failures are
+        returned as schema-valid FileOperationResponse structuredContent values,
+        not as MCP transport errors.
+      x-ms-agentic-protocol: mcp-streamable-1.0
       parameters:
         - name: body
           in: body
           required: true
           schema:
-            $ref: '#/definitions/FileOperationRequest'
+            $ref: '#/definitions/McpJsonRpcRequest'
       responses:
         '200':
-          description: Operation completed
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '400':
-          description: Invalid operation fields
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '403':
-          description: Rejected by workspace policy
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '404':
-          description: Item not found
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '408':
-          description: Operation timed out
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '409':
-          description: File conflict
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '413':
-          description: Request body exceeds the service byte limit
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '422':
-          description: Request schema validation failed
-          schema: {$ref: '#/definitions/FileOperationResponse'}
-        '500':
-          description: Internal server error
-          schema: {$ref: '#/definitions/FileOperationResponse'}
+          description: >
+            MCP JSON-RPC response, or an event stream whose message data
+            contains MCP JSON-RPC response objects.
+          schema:
+            $ref: '#/definitions/McpJsonRpcResponse'
 
 definitions:
+  McpJsonRpcRequest:
+    type: object
+    additionalProperties: false
+    required: [jsonrpc, method]
+    properties:
+      jsonrpc:
+        type: string
+        enum: ['2.0']
+        default: '2.0'
+      id:
+        description: >
+          JSON-RPC request id. MCP clients may send a string, number, or null;
+          notifications omit this field.
+        x-nullable: true
+      method:
+        type: string
+        description: MCP method name, such as initialize, tools/list, or tools/call.
+      params:
+        type: object
+        x-nullable: true
+        additionalProperties: true
+
+  McpJsonRpcResponse:
+    type: object
+    additionalProperties: false
+    required: [jsonrpc]
+    properties:
+      jsonrpc:
+        type: string
+        enum: ['2.0']
+        default: '2.0'
+      id:
+        description: JSON-RPC request id echoed from the request.
+        x-nullable: true
+      result:
+        $ref: '#/definitions/McpJsonRpcResult'
+      error:
+        $ref: '#/definitions/McpJsonRpcError'
+
+  McpJsonRpcResult:
+    type: object
+    additionalProperties: true
+    properties:
+      tools:
+        type: array
+        items: {$ref: '#/definitions/McpTool'}
+      content:
+        type: array
+        items: {$ref: '#/definitions/McpContent'}
+      structuredContent:
+        $ref: '#/definitions/FileOperationResponse'
+      isError:
+        type: boolean
+        default: false
+
+  McpJsonRpcError:
+    type: object
+    additionalProperties: true
+    required: [code, message]
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string
+      data:
+        type: object
+        x-nullable: true
+        additionalProperties: true
+
+  McpTool:
+    type: object
+    additionalProperties: true
+    required: [name, inputSchema]
+    properties:
+      name:
+        type: string
+        enum: [execute_workspace_file_operation]
+      title:
+        type: string
+      description:
+        type: string
+      inputSchema:
+        $ref: '#/definitions/ExecuteWorkspaceFileOperationToolInput'
+      outputSchema:
+        $ref: '#/definitions/FileOperationResponse'
+
+  McpToolCallParams:
+    type: object
+    additionalProperties: false
+    required: [name, arguments]
+    properties:
+      name:
+        type: string
+        enum: [execute_workspace_file_operation]
+      arguments:
+        $ref: '#/definitions/ExecuteWorkspaceFileOperationToolInput'
+
+  McpContent:
+    type: object
+    additionalProperties: true
+    required: [type]
+    properties:
+      type:
+        type: string
+      text:
+        type: string
+        x-nullable: true
+
+  ExecuteWorkspaceFileOperationToolInput:
+    type: object
+    additionalProperties: false
+    required: [request]
+    properties:
+      request:
+        $ref: '#/definitions/FileOperationRequest'
+
   FileOperationRequest:
     type: object
     required: [operation, workspace]

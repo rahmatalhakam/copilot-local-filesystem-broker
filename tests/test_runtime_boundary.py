@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import app.__main__ as launcher
 import app.main as main_module
+import app.operation_service as operation_service
 from app.config import AppConfig
 from app.main import create_app
 from app.models import FileOperationResponse, Status
@@ -128,7 +129,7 @@ def test_configured_timeout_default_applies_only_when_omitted(
             message='Done.',
         )
 
-    monkeypatch.setattr(main_module, 'dispatch', capture_timeout)
+    monkeypatch.setattr(operation_service, 'dispatch', capture_timeout)
     client = TestClient(create_app(configured))
 
     omitted = client.post(

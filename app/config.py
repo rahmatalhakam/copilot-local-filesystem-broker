@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +47,14 @@ _COMMAND_POLICY_KEYS = frozenset(
         "allow_wildcards",
     }
 )
+_MCP_KEYS = frozenset(
+    {
+        "enabled",
+        "endpoint_path",
+        "allowed_hosts",
+        "allowed_origins",
+    }
+)
 _READ_ONLY_COMMANDS = {
     command.casefold(): command
     for command in (
@@ -58,6 +66,34 @@ _READ_ONLY_COMMANDS = {
     )
 }
 _EXTENSION_PATTERN = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9_-]{0,15}$")
+_MCP_ENDPOINT_PATTERN = re.compile(r"^/[A-Za-z0-9._~/-]+$")
+_MCP_HOST_PATTERN = re.compile(r"^[A-Za-z0-9._~*\[\]:-]+$")
+_MCP_ORIGIN_PATTERN = re.compile(
+    r"^https?://[A-Za-z0-9._~*\[\]:-]+$",
+    re.IGNORECASE,
+)
+_DEFAULT_MCP_ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "127.0.0.1:*",
+    "0.0.0.0",
+    "0.0.0.0:*",
+    "localhost",
+    "localhost:*",
+    "[::1]",
+    "[::1]:*",
+    "[::]",
+    "[::]:*",
+]
+
+
+@dataclass(frozen=True)
+class McpConfig:
+    enabled: bool = True
+    endpoint_path: str = "/mcp"
+    allowed_hosts: list[str] = field(
+        default_factory=lambda: list(_DEFAULT_MCP_ALLOWED_HOSTS)
+    )
+    allowed_origins: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -80,6 +116,7 @@ class AppConfig:
     maximum_stdout_characters: int
     maximum_stderr_characters: int
     workspaces: dict[str, Workspace]
+    mcp: McpConfig = field(default_factory=McpConfig)
 
 
 def _error(location: str, message: str) -> ConfigurationError:
@@ -323,6 +360,84 @@ def _parse_command_policy(value: object, location: str) -> dict[str, Any]:
     }
 
 
+def _parse_string_list(
+    value: object,
+    location: str,
+    *,
+    item_name: str,
+    pattern: re.Pattern[str],
+    allow_empty: bool,
+) -> list[str]:
+    if not isinstance(value, list):
+        raise _error(location, "expected a list.")
+    if not value and not allow_empty:
+        raise _error(location, f"{item_name} list must contain at least one value.")
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        item_location = f"{location}[{index}]"
+        parsed = _as_string(item, item_location, maximum_length=255)
+        if not pattern.fullmatch(parsed):
+            raise _error(item_location, f"expected a valid MCP {item_name}.")
+        folded = parsed.casefold()
+        if folded in seen:
+            raise _error(item_location, f"duplicate MCP {item_name}.")
+        result.append(parsed)
+        seen.add(folded)
+    return result
+
+
+def _parse_mcp_endpoint(value: object, location: str) -> str:
+    endpoint = _as_string(value, location, maximum_length=200)
+    if not endpoint.startswith("/"):
+        raise _error(location, "endpoint_path must start with '/'.")
+    if endpoint == "/":
+        raise _error(location, "endpoint_path must not be '/'.")
+    if endpoint.endswith("/"):
+        raise _error(location, "endpoint_path must not end with '/'.")
+    if "//" in endpoint or not _MCP_ENDPOINT_PATTERN.fullmatch(endpoint):
+        raise _error(location, "endpoint_path contains invalid characters.")
+    return endpoint
+
+
+def _parse_mcp(value: object | None) -> McpConfig:
+    if value is None:
+        return McpConfig()
+
+    location = "mcp"
+    mapping = _as_mapping(value, location)
+    _reject_unknown_keys(mapping, _MCP_KEYS, location)
+
+    return McpConfig(
+        enabled=_as_boolean(
+            mapping.get("enabled", McpConfig.enabled),
+            "mcp.enabled",
+        ),
+        endpoint_path=_parse_mcp_endpoint(
+            mapping.get("endpoint_path", McpConfig.endpoint_path),
+            "mcp.endpoint_path",
+        ),
+        allowed_hosts=_parse_string_list(
+            mapping.get(
+                "allowed_hosts",
+                list(_DEFAULT_MCP_ALLOWED_HOSTS),
+            ),
+            "mcp.allowed_hosts",
+            item_name="host",
+            pattern=_MCP_HOST_PATTERN,
+            allow_empty=False,
+        ),
+        allowed_origins=_parse_string_list(
+            mapping.get("allowed_origins", []),
+            "mcp.allowed_origins",
+            item_name="origin",
+            pattern=_MCP_ORIGIN_PATTERN,
+            allow_empty=True,
+        ),
+    )
+
+
 def _parse_workspace(alias: str, value: object) -> Workspace:
     location = f"workspaces.{alias}"
     if not alias.strip() or len(alias) > 100:
@@ -484,8 +599,9 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         ) from exc
 
     root = _as_mapping(loaded, "configuration")
-    _reject_unknown_keys(root, frozenset({"server", "workspaces"}), "configuration")
+    _reject_unknown_keys(root, frozenset({"server", "workspaces", "mcp"}), "configuration")
     server = _parse_server(_required(root, "server", "configuration"))
+    mcp = _parse_mcp(root.get("mcp"))
 
     raw_workspaces = _as_mapping(
         _required(root, "workspaces", "configuration"),
@@ -509,12 +625,14 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         maximum_stdout_characters=server["maximum_stdout_characters"],
         maximum_stderr_characters=server["maximum_stderr_characters"],
         workspaces=workspaces,
+        mcp=mcp,
     )
 
 
 __all__ = [
     "AppConfig",
     "ConfigurationError",
+    "McpConfig",
     "Workspace",
     "load_config",
 ]
