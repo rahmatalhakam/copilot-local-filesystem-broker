@@ -236,3 +236,23 @@ def test_swagger_declares_stable_response_for_every_status() -> None:
         assert response['schema'] == {
             '$ref': '#/definitions/FileOperationResponse'
         }
+
+
+def test_request_defaults_stay_in_sync_with_pydantic() -> None:
+    for swagger_path in (
+        Path('swagger/api-definition.swagger.yaml'),
+        Path('swagger/mcp-streamable.swagger.yaml'),
+    ):
+        document = yaml.safe_load(swagger_path.read_text(encoding='utf-8'))
+        properties = document['definitions']['FileOperationRequest'][
+            'properties'
+        ]
+        for name, field in FileOperationRequest.model_fields.items():
+            if not isinstance(field.default, bool):
+                continue
+            declared = properties[name].get('default')
+            assert declared == field.default, f'{swagger_path}: {name}'
+        # expectedOccurrences must never regain a schema default: absent
+        # means "assert exactly one match unless replaceAll", and a
+        # declared default would make generated clients send it always.
+        assert 'default' not in properties['expectedOccurrences'], swagger_path

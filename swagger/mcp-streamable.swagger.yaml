@@ -218,6 +218,11 @@ definitions:
       appendNewLine:
         type: boolean
         x-ms-summary: Append newline
+        description: >-
+          APPEND_FILE only. Appends a trailing newline (and a separator when
+          the file lacks one) matching the file's existing line endings.
+          Ignored for base64 content. Sending false on any other operation
+          is rejected.
         x-ms-visibility: advanced
         default: true
       createParentDirectories:
@@ -242,6 +247,10 @@ definitions:
         type: string
         x-nullable: true
         x-ms-summary: Search text
+        description: >-
+          Literal text up to 10000 characters, or a regular expression up to
+          200 characters when useRegex is true. A newline in searchText
+          matches both LF and CRLF files.
         maxLength: 10000
       replacementText:
         type: string
@@ -252,6 +261,10 @@ definitions:
         type: integer
         format: int32
         x-ms-summary: Expected occurrences
+        description: >-
+          REPLACE_TEXT only. Asserts the exact number of matches before
+          writing. When omitted, exactly 1 match is required unless
+          replaceAll is true. Rejected on every other operation.
         x-ms-visibility: advanced
         x-nullable: true
         minimum: 1
@@ -264,11 +277,19 @@ definitions:
       caseSensitive:
         type: boolean
         x-ms-summary: Case sensitive
+        description: >-
+          REPLACE_TEXT and SEARCH_CONTENT only. Matching is case-sensitive
+          by default; set false to ignore case. Sending false on any other
+          operation is rejected; sending true is always harmless.
         x-ms-visibility: advanced
         default: true
       useRegex:
         type: boolean
         x-ms-summary: Use regular expression
+        description: >-
+          Treat searchText as a regular expression (max 200 characters).
+          Groups, alternation, lookaround, backreferences and repeated
+          character classes are denied for safety; prefer literal searches.
         x-ms-visibility: advanced
         default: false
       wholeWord:

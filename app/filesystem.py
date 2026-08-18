@@ -1307,7 +1307,14 @@ def _compile_pattern(
             'Search text exceeds the configured safe limit.',
             'bounded-search-text',
         )
-    expression = search_text if use_regex else _escape_literal(search_text)
+    if use_regex:
+        # Regex matching runs against LF-normalized text, so CRLF in the
+        # pattern -- as literal characters or as the backslash-escape
+        # pair -- is folded to a bare newline so it can still match.
+        expression = search_text.replace('\r\n', '\n')
+        expression = expression.replace('\\r\\n', '\\n')
+    else:
+        expression = _escape_literal(search_text)
     flags = 0 if case_sensitive else re.IGNORECASE
     if use_regex:
         try:

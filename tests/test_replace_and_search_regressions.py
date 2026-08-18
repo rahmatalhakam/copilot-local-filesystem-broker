@@ -509,7 +509,21 @@ def test_default_case_sensitive_does_not_invalidate_other_operations() -> None:
         )
     )
 
-    # An explicitly provided value on an inapplicable operation still fails.
+    # Generated clients may echo the default on every operation; an
+    # explicit value equal to the default stays harmless everywhere.
+    validate_operation_request(
+        FileOperationRequest.model_validate(
+            {
+                "operation": "READ_FILE",
+                "workspace": "demo",
+                "path": "example.txt",
+                "caseSensitive": True,
+            }
+        )
+    )
+
+    # Only a meaningful (non-default) value on an inapplicable operation
+    # is rejected.
     with pytest.raises(RequestValidationError):
         validate_operation_request(
             FileOperationRequest.model_validate(
@@ -517,7 +531,112 @@ def test_default_case_sensitive_does_not_invalidate_other_operations() -> None:
                     "operation": "READ_FILE",
                     "workspace": "demo",
                     "path": "example.txt",
-                    "caseSensitive": True,
+                    "caseSensitive": False,
                 }
             )
         )
+
+
+# --------------------------------------------------------------------------
+# Batch 7: field applicability + regex CRLF pattern normalization
+# --------------------------------------------------------------------------
+
+
+def test_expected_occurrences_is_rejected_outside_replace_text() -> None:
+    from app.dispatcher import validate_operation_request
+    from app.errors import RequestValidationError
+    from app.models import FileOperationRequest
+
+    with pytest.raises(RequestValidationError) as error:
+        validate_operation_request(
+            FileOperationRequest(
+                operation="UPDATE_FILE",
+                workspace="demo",
+                path="example.txt",
+                content="alpha",
+                expectedOccurrences=2,
+            )
+        )
+
+    assert "expectedOccurrences" in str(error.value)
+
+
+def test_append_newline_opt_out_is_rejected_outside_append_file() -> None:
+    from app.dispatcher import validate_operation_request
+    from app.errors import RequestValidationError
+    from app.models import FileOperationRequest
+
+    with pytest.raises(RequestValidationError) as error:
+        validate_operation_request(
+            FileOperationRequest(
+                operation="UPDATE_FILE",
+                workspace="demo",
+                path="example.txt",
+                content="alpha",
+                appendNewLine=False,
+            )
+        )
+
+    assert "appendNewLine" in str(error.value)
+
+    # The echoed default stays harmless everywhere.
+    validate_operation_request(
+        FileOperationRequest(
+            operation="READ_FILE",
+            workspace="demo",
+            path="example.txt",
+            appendNewLine=True,
+        )
+    )
+
+
+def test_regex_crlf_pattern_matches_a_crlf_file(workspace: Workspace) -> None:
+    target = workspace.root / "crlf-pattern.txt"
+    target.write_bytes(b"alpha\r\nbeta\r\ngamma\r\n")
+
+    _, count = replace_text(
+        workspace,
+        "crlf-pattern.txt",
+        "alpha\r\nbeta",
+        "one\ntwo",
+        use_regex=True,
+    )
+
+    assert count == 1
+    assert target.read_bytes() == b"one\r\ntwo\r\ngamma\r\n"
+
+
+def test_regex_crlf_escape_pattern_matches_a_crlf_file(
+    workspace: Workspace,
+) -> None:
+    target = workspace.root / "crlf-escape.txt"
+    target.write_bytes(b"alpha\r\nbeta\r\n")
+
+    settings = dict(SEARCH_DEFAULTS)
+    settings["use_regex"] = True
+    matches, total = search_content(
+        workspace,
+        ".",
+        r"alpha\r\nbeta",
+        max_results=10,
+        **settings,
+    )
+
+    assert total == 1
+    assert matches[0].lineNumber == 1
+
+
+def test_regex_crlf_pattern_matches_an_lf_file(workspace: Workspace) -> None:
+    target = workspace.root / "lf-pattern.txt"
+    target.write_bytes(b"alpha\nbeta\n")
+
+    _, count = replace_text(
+        workspace,
+        "lf-pattern.txt",
+        "alpha\r\nbeta",
+        "merged",
+        use_regex=True,
+    )
+
+    assert count == 1
+    assert target.read_bytes() == b"merged\n"

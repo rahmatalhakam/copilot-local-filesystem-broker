@@ -187,15 +187,36 @@ def validate_operation_request(request: FileOperationRequest) -> None:
         request,
         "caseSensitive",
         {Operation.REPLACE_TEXT, Operation.SEARCH_CONTENT},
-        # caseSensitive defaults to True, so only an explicitly provided
-        # value counts as active for applicability validation.
-        active="caseSensitive" in request.model_fields_set,
+        # caseSensitive defaults to True and generated clients may echo the
+        # default on every operation, so only an explicit value that
+        # differs from the default counts as active.
+        active=(
+            "caseSensitive" in request.model_fields_set
+            and request.caseSensitive is False
+        ),
     )
     _reject_value_unless(
         request,
         "replaceAll",
         {Operation.REPLACE_TEXT},
         active=request.replaceAll,
+    )
+    _reject_value_unless(
+        request,
+        "expectedOccurrences",
+        {Operation.REPLACE_TEXT},
+        active=request.expectedOccurrences is not None,
+    )
+    _reject_value_unless(
+        request,
+        "appendNewLine",
+        {Operation.APPEND_FILE},
+        # appendNewLine defaults to True, so only an explicit opt-out on an
+        # inapplicable operation is meaningful.
+        active=(
+            "appendNewLine" in request.model_fields_set
+            and request.appendNewLine is False
+        ),
     )
     _reject_value_unless(
         request,
